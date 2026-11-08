@@ -4,3 +4,14 @@
 .cxx/
 build/
 local.properties
+# CriCri Mods: the signing key never goes to the repository
+*.jks
+*.keystore
+*.p12
+# nor the catalog's private key (or any other private key)
+*.pem
+*.key
+# the mods' build outputs (the app ships the checked DLLs in fusionApp/src/main/assets/mods)
+embutidos/*/bin/
+embutidos/*/obj/
+embutidos/*/fora-do-app/

@@ -123,6 +123,14 @@ int il2cpp_init_hook(char *domain_name)
         dotNetConfig.IsMono = runtime_config.isIl2Cpp2Mono;
         // set TMPDIR for MonoMod lib drops
         setenv("TMPDIR", runtime_config.codeCacheDirectory.c_str(), 1);
+        // CriCri Mods: MonoMod.Core drops its native helper in $XDG_CACHE_HOME or $HOME/.cache. In an app
+        // process HOME is not writable (on a Xiaomi/Android 16 it resolved to /data/.cache), and every Harmony
+        // patch failed with "Access to the path '/data/.cache' is denied". Point both at the app's code cache.
+        setenv("HOME", runtime_config.codeCacheDirectory.c_str(), 1);
+        fs::path xdgCache = fs::path(runtime_config.codeCacheDirectory) / ".cache";
+        std::error_code cacheError;
+        fs::create_directories(xdgCache, cacheError);
+        setenv("XDG_CACHE_HOME", xdgCache.string().c_str(), 1);
 
         // create AuxFolderPluginList
         auto aux = runtime_config.auxiliaryPluginFolders;

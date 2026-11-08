@@ -1,0 +1,91 @@
+{
+  "mods": [
+    {
+      "id": "com.cricri.replay",
+      "name": "CriCri Replay",
+      "author": "CriCri",
+      "icon": "replay",
+      "version": "1.7.2",
+      "file": "CriCriReplay.dll",
+      "sha256": "2afc310fefca09a8c14b2ac1c1d8607e369983c22afb8e2a07088f7002933b2d",
+      "description": "Assista às suas partidas de novo dentro do jogo.",
+      "details": [
+        "Grava sozinho cada partida que você joga, sem precisar apertar nada.",
+        "No CRICRI BR o celular não grava: o servidor guarda a partida e ela chega aqui quando acaba (com a chave da conta em Conta).",
+        "Abre a partida de novo no mapa, com os bonecos vestidos como estavam.",
+        "Dá pra seguir a visão de cada jogador.",
+        "Também abre os replays da Comunidade."
+      ],
+      "where": "Menu principal do jogo → Replays",
+      "enabledByDefault": true,
+      "gameVersions": [
+        "2026.11.3"
+      ]
+    },
+    {
+      "id": "br.com.cricribr.servidor",
+      "name": "Servidor CRICRI BR",
+      "author": "CriCri",
+      "icon": "servidor",
+      "version": "0.3.0",
+      "file": "CriCriServidor.dll",
+      "sha256": "4da53d0cb4ad9abf05e14732fce22dbdc11b3c6f982b818f40235e8e7daf2be0",
+      "description": "O servidor brasileiro do CriCri e as opções das salas de lá.",
+      "details": [
+        "Acrescenta a região CriCri BR, com servidor em São Paulo: menos atraso pra quem joga do Brasil.",
+        "No menu principal, o botão CRICRI BR já escolhe essa região e abre o Online.",
+        "As regiões oficiais continuam lá; você escolhe em qual jogar.",
+        "No lobby do CRICRI BR, a aba CRICRI BR mostra as opções da sala: o dono muda no computador, os outros veem em Ver configurações.",
+        "Pra essa aba e pras partidas chegarem no Replay, cole a chave da sua conta do CRICRI BR em Conta (cricribr.com.br → Minha conta)."
+      ],
+      "where": "No jogo: menu principal → CRICRI BR; no lobby, a aba CRICRI BR",
+      "enabledByDefault": true,
+      "gameVersions": []
+    },
+    {
+      "id": "br.com.cricribr.otimizacao",
+      "name": "Otimização",
+      "author": "CriCri",
+      "icon": "otimizacao",
+      "version": "0.4.1",
+      "file": "CriCriOtimizacao.dll",
+      "sha256": "81ea9b1c5a217e3065246ccc160eb9d3fafe9844d7731205ad0dba299f182455",
+      "description": "FPS, resolução e modo flash, ajustados no jogo.",
+      "details": [
+        "Limite de FPS até o máximo da sua tela e contador de FPS na tela.",
+        "Resolução numa barra, como no PC (o tamanho novo vale quando o jogo abre).",
+        "Modo flash: o jogo abre sem a espera da tela de abertura e carrega mais rápido fora da rodada.",
+        "Movimento suave e texturas no máximo.",
+        "Modo streamer e nome na cor do jogador para quem usa o modo daltônico.",
+        "Sem anúncios dentro do jogo."
+      ],
+      "where": "No jogo: Definições → Gráficos (modo streamer em Geral)",
+      "hidden": true,
+      "listed": true,
+      "gameVersions": []
+    },
+    {
+      "id": "br.com.cricribr.conta",
+      "name": "Login",
+      "author": "CriCri",
+      "icon": "conta",
+      "version": "0.2.0",
+      "file": "CriCriConta.dll",
+      "sha256": "8f1e0a1ab363795729702e28e88ca4d42b1b5bac077c94cefde65608095cdff9",
+      "description": "Faz o jogo entrar na conta que você escolheu no app.",
+      "details": [
+        "Entrega ao jogo o login que você fez pelo site oficial da Innersloth.",
+        "O login fica só neste celular e o app não manda ele pra lugar nenhum além do jogo.",
+        "Guarda a roupa da sua conta: se o jogo entrar como convidado, ela volta quando a sua conta entrar de novo.",
+        "Se o login vencer, o JOGAR abre o login de novo; um toque no ✓ e o jogo já abre."
+      ],
+      "where": "Tela inicial do app → Conta",
+      "hidden": true,
+      "listed": true,
+      "gameVersions": []
+    }
+  ],
+  "removidos": [
+    "CriCriMenu.dll"
+  ]
+}

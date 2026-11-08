@@ -46,6 +46,9 @@ import dev.allofus.fusioncore.tools.GlobalMetadata;
 import dev.allofus.fusioncore.tools.Il2CppApiMapper;
 import dev.allofus.fusioncore.tools.UnityBaseLibraries;
 import dev.allofus.fusioncore.tools.LibUnityDownloader;
+import dev.allofus.fusioncore.tools.Conta;
+import dev.allofus.fusioncore.tools.ModsManager;
+import dev.allofus.fusioncore.tools.Otimizacoes;
 import dev.allofus.fusioncore.tools.NativeLibraryManager;
 import dev.allofus.fusioncore.tools.Utilities;
 import dev.allofus.fusioncore.tools.UnityUtils;
@@ -84,6 +87,7 @@ public class BootstrapActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Utilities.init(this);
         setContentView(R.layout.activity_bootstrap);
         statusView = findViewById(R.id.bootstrap_status);
         progressDetailsView = findViewById(R.id.bootstrap_progress_details);
@@ -459,6 +463,9 @@ public class BootstrapActivity extends AppCompatActivity {
         File DeobfuscationDir = new File(bepInExDir, "Deobfuscation");
         setPhaseStatus(getString(R.string.bootstrap_status_detecting_version));
         String version = UnityUtils.TryGetVersion(copiedData);
+        if (!BuildConfig.ALLOW_RUNTIME_DOWNLOADS) {
+            useOriginalLibUnity = true;
+        }
         if (version == null) {
             Log.e(TAG, "Failed to determine Unity version! BepInEx may not work correctly.");
             version = BACKUP_UNITY_VERSION;
@@ -494,11 +501,21 @@ public class BootstrapActivity extends AppCompatActivity {
         File dotnetDir;
         if(!useIl2Cpp2Mono) {
             dotnetDir = new File(getRuntimeDir(appContext), "dotnet");
-            Utilities.extractZipFromAssets(appContext, "BepInEx-arm64.zip", bepInExDir, "config/");
-            if (!BACKUP_UNITY_VERSION.equals(version)) {
-                UnityBaseLibraries.resolve(bepInExDir, version);
+            Utilities.extractZipFromAssetsIfChanged(appContext, "BepInEx-arm64.zip", bepInExDir, "config/");
+            if (!BuildConfig.ALLOW_RUNTIME_DOWNLOADS) {
+                Utilities.setUnityBaseLibrariesSource(bepInExDir, "");
+            } else {
+                Utilities.setUnityBaseLibrariesSource(bepInExDir, Utilities.DEFAULT_UNITY_BASE_LIBRARIES_SOURCE);
+                if (!BACKUP_UNITY_VERSION.equals(version)) {
+                    UnityBaseLibraries.resolve(bepInExDir, version);
+                }
             }
-            Utilities.extractZipFromAssets(appContext, "dotnet-arm64.zip", dotnetDir);
+            setPhaseStatus(getString(R.string.bootstrap_status_installing_mods));
+            ModsManager.install(appContext, bepInExDir);
+            Otimizacoes.prepararJogo(appContext, getWindowManager().getDefaultDisplay(), bepInExDir);
+            Conta.prepararJogo(appContext);
+            dev.allofus.fusioncore.tools.ChaveBr.prepararJogo(appContext);
+            Utilities.extractZipFromAssetsIfChanged(appContext, "dotnet-arm64.zip", dotnetDir, null);
         } //we do something else
         else{
             dotnetDir = new File(getRuntimeDir(appContext), "mono");

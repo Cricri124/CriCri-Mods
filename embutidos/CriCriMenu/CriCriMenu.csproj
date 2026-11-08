@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CriCri Mods inside the game: the main menu in one of 4 styles (normal / classico / painel / hub), chosen in
+    BepInEx/config/cricri-mods-menu.json ({"Estilo":"painel"}; written by CriCriOtimizacao's selector). No Harmony:
+    everything runs from a MonoBehaviour Update (Android inlines many game methods and a hook may never fire).
+
+    Built against the interop the phone generated (BepInEx/interop pulled with adb):
+      dotnet build embutidos\CriCriMenu\CriCriMenu.csproj -c Release -p:InteropDir=<folder>
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>CriCriMenu</AssemblyName>
+    <RootNamespace>CriCriMods.Menu</RootNamespace>
+    <Version>0.1.1</Version>
+    <DebugType>none</DebugType>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <InteropDir Condition="'$(InteropDir)' == ''">$(USERPROFILE)\Downloads\cricriqol\android\interop-celular-2026.11.3</InteropDir>
+    <!-- BepInEx itself comes from the PC install: the phone's BepInExFusion targets .NET 10 and a net6 plugin
+         cannot compile against it, but binds to it at run time (CriCriOtimizacao and the CriCri Replay do the same). -->
+    <BepInExCore Condition="'$(BepInExCore)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\core</BepInExCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core"><HintPath>$(BepInExCore)\BepInEx.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP"><HintPath>$(BepInExCore)\BepInEx.Unity.IL2CPP.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(BepInExCore)\Il2CppInterop.Runtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2Cppmscorlib"><HintPath>$(InteropDir)\interop\Il2Cppmscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(InteropDir)\interop\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(InteropDir)\interop\Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(InteropDir)\interop\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(InteropDir)\interop\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UIModule"><HintPath>$(InteropDir)\interop\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.SpriteMaskModule"><HintPath>$(InteropDir)\interop\UnityEngine.SpriteMaskModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(InteropDir)\interop\UnityEngine.Physics2DModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(InteropDir)\interop\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>

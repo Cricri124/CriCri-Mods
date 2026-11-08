@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: icon of a mod without its own (drawn for this app): four blocks. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/mod_padrao_fundo"
+        android:pathData="M12,0h24a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-24a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:fillColor="@color/mod_padrao"
+        android:pathData="M14,14h8.5v8.5h-8.5zM25.5,14h8.5v8.5h-8.5zM14,25.5h8.5v8.5h-8.5zM25.5,25.5h8.5v8.5h-8.5z" />
+</vector>

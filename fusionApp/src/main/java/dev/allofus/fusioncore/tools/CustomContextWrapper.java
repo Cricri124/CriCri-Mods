@@ -27,6 +27,7 @@ public class CustomContextWrapper extends ContextWrapper {
 
     public CustomContextWrapper(Context gameContext, Context fusionContext, Application application) {
         super(gameContext);
+        Utilities.init(fusionContext);
         this.gameContext = gameContext;
         this.fusionContext = fusionContext;
         if (application != null) {

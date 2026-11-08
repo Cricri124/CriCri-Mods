@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CriCri Mods: the in-game half of "Entrar com o Google". Google Play Games cannot sign in inside the app (Google ties
+    it to the original app's signature), so the game falls back to a guest. The player signs in on Innersloth's own
+    account site instead, shares the page to the app, and this plugin hands that Google ID token to the game when it
+    asks Google Play Games for one (GetIdToken). The game then does its normal EOS login with it.
+
+    GetIdToken is reached through an interface (IPlayGamesClient / TokenClient), so the compiler cannot inline it and
+    the hook fires even on Android.
+
+    Build against the interop the phone generated:
+      dotnet build embutidos\CriCriConta\CriCriConta.csproj -c Release -p:InteropDir=<folder>
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>CriCriConta</AssemblyName>
+    <RootNamespace>CriCriMods.Conta</RootNamespace>
+    <Version>0.2.0</Version>
+    <DebugType>none</DebugType>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <InteropDir Condition="'$(InteropDir)' == ''">$(USERPROFILE)\Downloads\cricriqol\android\interop-celular-2026.11.3</InteropDir>
+    <!-- BepInEx and Harmony come from the PC install (net6-compatible). The phone has newer copies (Harmony 2.16,
+         Il2CppInterop 1.5.2) and a net6 plugin binds to them at run time. -->
+    <BepInExCore Condition="'$(BepInExCore)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\core</BepInExCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCore)\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx.Core"><HintPath>$(BepInExCore)\BepInEx.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP"><HintPath>$(BepInExCore)\BepInEx.Unity.IL2CPP.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(BepInExCore)\Il2CppInterop.Runtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2Cppmscorlib"><HintPath>$(InteropDir)\interop\Il2Cppmscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(InteropDir)\interop\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <!-- the outfit keeper (Roupa.cs) is a per-frame object -->
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(InteropDir)\interop\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>

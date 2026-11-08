@@ -35,6 +35,11 @@ public final class GameRuntime {
 
     public static android.app.Application getGameApplication() { return gameApplication; }
 
+    // CriCri Mods: true while a game activity exists in this process (the "Jogar com mods" icon then just brings
+    // the game back instead of starting a second one).
+    private static volatile int jogoAtividades;
+    public static boolean jogoAberto() { return jogoAtividades > 0; }
+
     public static void initializeApplication(Context gameContext, Context fusionContext)
             throws ReflectiveOperationException {
         String className = gameContext.getApplicationInfo().className;
@@ -140,6 +145,7 @@ public final class GameRuntime {
                     target.getComponent().getClassName(), target);
             pendingIntents.put(activity, target);
             gameActivities.add(activity);
+            jogoAtividades = gameActivities.size();
             return activity;
         }
 
@@ -192,7 +198,11 @@ public final class GameRuntime {
             original.callActivityOnCreate(activity, state, persistentState);
         }
         @Override public void callActivityOnResume(Activity activity) {
-            if (gameActivities.contains(activity)) InstrumentationHooks.applyTargetOrientation(activity);
+            if (gameActivities.contains(activity)) {
+                InstrumentationHooks.applyTargetOrientation(activity);
+                // CriCri Mods: the screen refresh rate that matches the frame rate picked in the game's "Mods" tab.
+                dev.allofus.fusioncore.tools.Otimizacoes.pedirTaxaDaTela(activity);
+            }
             original.callActivityOnResume(activity);
         }
         @Override public void callActivityOnNewIntent(Activity activity, Intent intent) {
@@ -202,6 +212,7 @@ public final class GameRuntime {
         @Override public void callActivityOnDestroy(Activity activity) {
             pendingIntents.remove(activity);
             gameActivities.remove(activity);
+            jogoAtividades = gameActivities.size();
             original.callActivityOnDestroy(activity);
         }
         @Override public boolean onException(Object object, Throwable error) {

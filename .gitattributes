@@ -1,0 +1,6 @@
+# exact bytes: the test signature covers these files as they are (no line-ending conversion)
+fusionApp/src/test/resources/mods-site/** -text
+*.dll binary
+*.zip binary
+*.so binary
+*.png binary

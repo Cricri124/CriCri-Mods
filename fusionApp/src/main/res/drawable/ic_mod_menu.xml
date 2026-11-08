@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: icon of the main-menu styles mod (drawn for this app): a big panel and two small ones. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/mod_menu_fundo"
+        android:pathData="M12,0h24a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-24a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:fillColor="@color/mod_menu"
+        android:pathData="M15,13h8a2.5,2.5 0,0 1,2.5 2.5v17a2.5,2.5 0,0 1,-2.5 2.5h-8a2.5,2.5 0,0 1,-2.5 -2.5v-17a2.5,2.5 0,0 1,2.5 -2.5zM30,13h3a2.5,2.5 0,0 1,2.5 2.5v6a2.5,2.5 0,0 1,-2.5 2.5h-3a2.5,2.5 0,0 1,-2.5 -2.5v-6a2.5,2.5 0,0 1,2.5 -2.5zM30,26h3a2.5,2.5 0,0 1,2.5 2.5v4a2.5,2.5 0,0 1,-2.5 2.5h-3a2.5,2.5 0,0 1,-2.5 -2.5v-4a2.5,2.5 0,0 1,2.5 -2.5z" />
+</vector>

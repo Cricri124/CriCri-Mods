@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: icon of the login mod (drawn for this app): a key. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/mod_conta_fundo"
+        android:pathData="M12,0h24a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-24a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:pathData="M11.5,24a5.75,5.75 0,1 0,11.5 0a5.75,5.75 0,1 0,-11.5 0"
+        android:strokeWidth="3"
+        android:strokeColor="@color/mod_conta" />
+    <path
+        android:pathData="M23,24H36.5M31.5,24V28.5M35.5,24V27.5"
+        android:strokeWidth="3"
+        android:strokeColor="@color/mod_conta"
+        android:strokeLineCap="round" />
+</vector>

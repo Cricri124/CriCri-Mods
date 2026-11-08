@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    CriCri Mods inside the game: optimization (frame rate, resolution, smooth movement, textures, anti-aliasing),
+    FPS counter, no ads, colorblind names in each player's color, and the "CriCri" tab in the game's Options where
+    the player changes all of it. Ships inside the APK (assets/mods, hidden in the mod list).
+    Android: many game methods are inlined and a Harmony patch may never fire, so only two hooks on real functions
+    (AdsManager.InitLevelPlay, OptionsMenuBehaviour.Start) and everything else runs from a MonoBehaviour Update.
+
+    Build against the interop the phone generated (BepInEx/interop pulled with adb), so the members used are
+    the ones the device really has:
+      dotnet build embutidos\CriCriOtimizacao\CriCriOtimizacao.csproj -c Release -p:InteropDir=<folder>
+  -->
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <AssemblyName>CriCriOtimizacao</AssemblyName>
+    <RootNamespace>CriCriMods</RootNamespace>
+    <Version>0.4.1</Version>
+    <DebugType>none</DebugType>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <InteropDir Condition="'$(InteropDir)' == ''">$(USERPROFILE)\Downloads\cricriqol\android\interop-celular-2026.11.3</InteropDir>
+    <!-- BepInEx itself comes from the PC install: the phone's BepInExFusion targets .NET 10 and a net6 plugin
+         cannot compile against it, but binds to it at run time (the CriCri Replay does the same). -->
+    <BepInExCore Condition="'$(BepInExCore)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\core</BepInExCore>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core"><HintPath>$(BepInExCore)\BepInEx.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP"><HintPath>$(BepInExCore)\BepInEx.Unity.IL2CPP.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>$(BepInExCore)\Il2CppInterop.Runtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCore)\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2Cppmscorlib"><HintPath>$(InteropDir)\interop\Il2Cppmscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(InteropDir)\interop\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Unity.TextMeshPro"><HintPath>$(InteropDir)\interop\Unity.TextMeshPro.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(InteropDir)\interop\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(InteropDir)\interop\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(InteropDir)\interop\UnityEngine.Physics2DModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(InteropDir)\interop\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+</Project>

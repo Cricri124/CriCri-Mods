@@ -16,13 +16,18 @@ public final class FusionSettings {
         return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
     }
     public static boolean getUseIl2Cpp2Mono(Context context, String targetPackage) {
-        return prefs(context).getBoolean(targetPackage + ":" + KEY_USE_IL2CPP2MONO, false);
+        // CriCri Mods: Among Us is a regular IL2CPP game; the il2cpp2mono runtime is not shipped.
+        return false;
     }
 
     public static void setUseIl2Cpp2Mono(Context context, String targetPackage, boolean enabled) {
         prefs(context).edit().putBoolean(targetPackage + ":" + KEY_USE_IL2CPP2MONO, enabled).apply();
     }
     public static boolean getUseUnstrippedLibUnityForGame(Context context, String targetPackage) {
+        // CriCri Mods: the unstripped libunity is a download, which the Play Store build never does.
+        if (!BuildConfig.ALLOW_RUNTIME_DOWNLOADS) {
+            return false;
+        }
         return prefs(context).getBoolean(targetPackage + ":" + KEY_DOWNLOAD_UNSTRIPPED_LIBUNITY, true);
     }
 

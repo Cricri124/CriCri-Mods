@@ -1,0 +1,102 @@
+using System;
+using BepInEx;
+using BepInEx.Unity.IL2CPP;
+using Il2CppInterop.Runtime.Injection;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+namespace CriCriMods.Servidor
+{
+    // The CRICRI BR server in the game's region list (the production one only: the test server is for the team).
+    // Data from the server's own definition (CRICRI-BR src/CricriBr.Contas/RegiaoDoJogo.cs): StaticHttpRegionInfo,
+    // PingServer "cricribr.com.br", one server "http-1" at https://cricribr.com.br:443, no DTLS, no translation.
+    // Only ADDS the region (the official ones stay); nothing here touches the game's HTTP calls or sends packets.
+    // Split from CriCriOtimizacao on 08/11/2026, same code (confirmed working on the CriCri's phone that night).
+    [BepInPlugin(Id, "CriCri Mods - servidor CRICRI BR", Versao)]
+    public sealed class Plugin : BasePlugin
+    {
+        public const string Id = "br.com.cricribr.servidor";
+        public const string Versao = "0.3.0";
+        internal static BepInEx.Logging.ManualLogSource Registro;
+
+        public override void Load()
+        {
+            Registro = Log;
+            // First of all: the account's CRICRI BR mod key leaves the process environment (other mods share it).
+            SalaApi.PegarChave();
+            // Android rule: per-frame objects for the work (Unity messages always fire); Harmony only on Unity
+            // messages (OnEnable), which are real functions, never inlined.
+            ClassInjector.RegisterTypeInIl2Cpp<Regiao>();
+            ClassInjector.RegisterTypeInIl2Cpp<AbaSala>();
+            ClassInjector.RegisterTypeInIl2Cpp<BotaoCricriBr>();
+            var objeto = new GameObject("CriCriServidor");
+            UnityEngine.Object.DontDestroyOnLoad(objeto);
+            objeto.hideFlags = HideFlags.HideAndDontSave;
+            objeto.AddComponent<Regiao>();
+            objeto.AddComponent<AbaSala>();
+            objeto.AddComponent<BotaoCricriBr>();   // the CRICRI BR button on the game's own main menu (08/11)
+
+            var h = new HarmonyLib.Harmony(Id);
+            Prender(h, typeof(GameSettingMenu), nameof(DepoisMenuDono));
+            Prender(h, typeof(LobbyViewSettingsPane), nameof(DepoisMenuVer));
+            Log.LogInfo("CriCri Mods servidor " + Versao + ": regiao " + Regiao.Nome + "; opcoes da sala "
+                + (SalaApi.TemChave ? "com a chave da conta" : "sem chave (cole no app pra ver)"));
+        }
+
+        void Prender(HarmonyLib.Harmony h, Type tipo, string posfixo)
+        {
+            try
+            {
+                var alvo = HarmonyLib.AccessTools.Method(tipo, "OnEnable");
+                if (alvo == null) { Log.LogWarning("[sala] nao achei " + tipo.Name + ".OnEnable"); return; }
+                h.Patch(alvo, postfix: new HarmonyLib.HarmonyMethod(typeof(Plugin), posfixo));
+            }
+            catch (Exception e) { Log.LogWarning("[sala] gancho em " + tipo.Name + ": " + e.GetType().Name + ": " + e.Message); }
+        }
+
+        static void DepoisMenuDono(GameSettingMenu __instance) => AbaSala.MenuDonoAbriu(__instance);
+        static void DepoisMenuVer(LobbyViewSettingsPane __instance) => AbaSala.MenuVerAbriu(__instance);
+    }
+
+    internal sealed class Regiao : MonoBehaviour
+    {
+        public Regiao(IntPtr ptr) : base(ptr) { }
+
+        public const string Nome = "CriCri BR";
+        const string Endereco = "cricribr.com.br";
+        bool _feito, _avisou;
+        float _prox;
+
+        void Update()
+        {
+            if (_feito) return;
+            float agora = Time.unscaledTime;
+            if (agora < _prox) return;
+            _prox = agora + 1f;
+            try { Garantir(); }
+            catch (Exception e)
+            {
+                if (!_avisou) { _avisou = true; Plugin.Registro.LogWarning("[servidor] " + e.GetType().Name + ": " + e.Message); }
+            }
+        }
+
+        // On the main menu, once per launch (AddOrUpdateRegion keeps it in the game's saved list too).
+        void Garantir()
+        {
+            if (SceneManager.GetActiveScene().name != "MainMenu") return;
+            if (!DestroyableSingleton<ServerManager>.InstanceExists) return;
+            var servidores = DestroyableSingleton<ServerManager>.Instance;
+            var regioes = servidores.AvailableRegions;
+            if (regioes != null)
+                for (int i = 0; i < regioes.Length; i++)
+                    if (regioes[i] != null && regioes[i].Name == Nome) { _feito = true; return; }
+
+            var lista = new Il2CppReferenceArray<ServerInfo>(new[] { new ServerInfo("http-1", "https://" + Endereco, 443, false) });
+            var regiao = new StaticHttpRegionInfo(Nome, StringNames.NoTranslation, Endereco, lista, null);
+            servidores.AddOrUpdateRegion(regiao.Cast<IRegionInfo>());
+            _feito = true;
+            Plugin.Registro.LogInfo("[servidor] " + Nome + " acrescentado na lista de regioes");
+        }
+    }
+}

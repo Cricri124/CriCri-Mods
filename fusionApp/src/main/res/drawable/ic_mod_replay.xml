@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: icon of the CriCri Replay mod (drawn for this app): a rewind arrow around a play mark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/mod_replay_fundo"
+        android:pathData="M12,0h24a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-24a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:pathData="M24,13A11,11 0,1 1,13.66 20.24"
+        android:strokeWidth="3"
+        android:strokeColor="@color/mod_replay"
+        android:strokeLineCap="round" />
+    <path
+        android:fillColor="@color/mod_replay"
+        android:pathData="M18.5,13L24.5,8.6L24.5,17.4Z" />
+    <path
+        android:fillColor="@color/mod_replay"
+        android:pathData="M21.6,19.6L29.4,24L21.6,28.4Z" />
+</vector>

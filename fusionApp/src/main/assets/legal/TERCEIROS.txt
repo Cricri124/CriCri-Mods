@@ -1,0 +1,39 @@
+CRICRI MODS: LICENÇAS DAS PEÇAS QUE VÊM NO APP
+==============================================
+
+O APP
+  CriCri Mods é uma versão modificada do Fusion Core, da All Of Us
+  (https://github.com/All-Of-Us-Mods/FusionCore), distribuída sob a GNU GPL v3.
+  O texto completo da licença está em "Ver licença" (LICENSE.txt).
+
+CÓDIGO DE TERCEIROS DENTRO DO APP
+  BepInEx e BepInExFusion ............. LGPL-2.1    https://github.com/BepInEx/BepInEx
+                                                    https://github.com/All-Of-Us-Mods/BepInExFusion
+  Il2CppInterop ....................... LGPL-3.0    https://github.com/BepInEx/Il2CppInterop
+    (o fork Il2CppInteropFusion, da All Of Us, não declara licença no GitHub)
+  HarmonyX (0Harmony) ................. MIT         https://github.com/BepInEx/HarmonyX
+  MonoMod ............................. MIT         https://github.com/MonoMod/MonoMod
+  Mono.Cecil .......................... MIT         https://github.com/jbevain/cecil
+  Cpp2IL e LibCpp2IL .................. MIT         https://github.com/SamboyCoding/Cpp2IL
+  Disarm .............................. MIT         https://github.com/SamboyCoding/Disarm
+  AsmResolver ......................... MIT         https://github.com/Washi1337/AsmResolver
+  AssetRipper.Primitives e CIL ........ MIT         https://github.com/AssetRipper
+  Iced ................................ MIT         https://github.com/icedland/iced
+  Capstone.NET (Gee.External.Capstone)  MIT         https://github.com/9ee1/Capstone.NET
+  SemanticVersioning .................. MIT         https://github.com/adamreeve/semver.net
+  StableNameDotNet, WasmDisassembler .. a conferir
+  .NET (runtime e bibliotecas) ........ MIT         https://github.com/dotnet/runtime
+  OpenSSL 3.3.1 (libcrypto, libssl) ... Apache-2.0  https://www.openssl.org
+  Dobby ............................... Apache-2.0  https://github.com/jmpews/Dobby
+  libmain ............................. sem licença declarada
+                                                    https://github.com/springmusk026/libmain.so
+  AndroidX e Material Components ...... Apache-2.0  https://developer.android.com/jetpack/androidx
+  Protocol Buffers (protobuf-javalite)  BSD-3-Clause https://github.com/protocolbuffers/protobuf
+
+MODS QUE VÊM NO APP
+  CriCri Replay 1.5.0 ................. do CriCri; não faz parte do código aberto do app.
+
+AMONG US
+  Este app não é afiliado ao Among Us nem à Innersloth LLC, e o conteúdo não é endossado nem patrocinado pela
+  Innersloth LLC. Partes do material são propriedade da Innersloth LLC. © Innersloth LLC.
+  O Among Us não vem neste app: ele abre o Among Us que você instalou pela Play Store.

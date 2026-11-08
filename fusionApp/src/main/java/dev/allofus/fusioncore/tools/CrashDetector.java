@@ -23,6 +23,7 @@ public class CrashDetector {
     public static final String TAG = "CrashDetector";
 
     public static void init(Context context) {
+        Utilities.init(context);
         setupUncaughtExceptionHandler(context);
 
         ActivityManager activityManager = context.getSystemService(ActivityManager.class);

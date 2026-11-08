@@ -27,8 +27,29 @@ import java.util.zip.ZipInputStream;
 public class Utilities {
     private static final String TAG = "FusionCore";
 
+    private static volatile File baseDir;
+
+    // CriCri Mods: everything lives in the app-specific external directory (Android/data/<app>/files),
+    // which needs no storage permission, instead of /sdcard/FusionCore (MANAGE_EXTERNAL_STORAGE).
+    public static void init(Context context) {
+        if (baseDir != null) {
+            return;
+        }
+        Context app = context.getApplicationContext() != null ? context.getApplicationContext() : context;
+        File dir = app.getExternalFilesDir(null);
+        if (dir == null) {
+            Log.w(TAG, "External files dir unavailable, using internal files dir");
+            dir = app.getFilesDir();
+        }
+        baseDir = dir;
+        Log.i(TAG, "Storage directory: " + dir.getAbsolutePath());
+    }
+
     public static File getExternalFusionCoreDirectory(@Nullable String targetPackage, @Nullable String Folder) {
-        File fusionStorage = new File(Environment.getExternalStorageDirectory(), "FusionCore");
+        if (baseDir == null) {
+            throw new IllegalStateException("Utilities.init(Context) was not called before using the storage directory");
+        }
+        File fusionStorage = baseDir;
         if (targetPackage != null) {
             fusionStorage = new File(fusionStorage, targetPackage);
         }
@@ -82,6 +103,79 @@ public class Utilities {
     }
 
     public static void extractZipFromStream(ZipInputStream zis, File outputFolder, @Nullable String keepExistingPrefix) throws IOException {
+        extractZipFromStream(zis, outputFolder, keepExistingPrefix, null);
+    }
+
+    // CriCri Mods: the runtime zips (BepInEx 8 MB, .NET 67 MB unpacked) were unpacked on EVERY launch, 0.8 s + 3.8 s
+    // on the CriCri's Redmi 14C (08/11). Now only when this app was installed/updated since the last time or a file
+    // is missing or has another size: the list of unpacked files is kept with the stamp and checked (one stat per
+    // file). Entries under keepExistingPrefix (BepInEx.cfg, changed on purpose) only have to exist.
+    public static void extractZipFromAssetsIfChanged(Context context, String assetName, File outputFolder, @Nullable String keepExistingPrefix) {
+        File stamp = new File(context.getNoBackupFilesDir(), "extraido-" + assetName + ".txt");
+        String key = appStamp(context) + "|" + outputFolder.getAbsolutePath();
+        long start = System.currentTimeMillis();
+        if (stampStillValid(stamp, key, outputFolder)) {
+            Log.i(TAG, assetName + " already unpacked, checked in " + (System.currentTimeMillis() - start) + " ms");
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        try (InputStream is = context.getAssets().open(assetName);
+             ZipInputStream zis = new ZipInputStream(new BufferedInputStream(is))) {
+            extractZipFromStream(zis, outputFolder, keepExistingPrefix, names);
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to extract " + assetName + " from assets!", e);
+            //noinspection ResultOfMethodCallIgnored
+            stamp.delete();
+            return;
+        }
+        StringBuilder sb = new StringBuilder(key).append('\n');
+        for (String name : names) {
+            boolean keep = keepExistingPrefix != null && name.startsWith(keepExistingPrefix);
+            sb.append(keep ? -1L : new File(outputFolder, name).length()).append('\t').append(name).append('\n');
+        }
+        try (OutputStream out = new FileOutputStream(stamp, false)) {
+            out.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Log.w(TAG, "Failed to write " + stamp, e);
+        }
+        Log.i(TAG, "Unpacked " + assetName + " (" + names.size() + " files) in " + (System.currentTimeMillis() - start) + " ms");
+    }
+
+    private static String appStamp(Context context) {
+        try {
+            var info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            long code = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? info.getLongVersionCode() : info.versionCode;
+            return code + ":" + info.lastUpdateTime;
+        } catch (Exception e) {
+            return "?" + System.currentTimeMillis();   // unknown: never matches, unpacks as before
+        }
+    }
+
+    private static boolean stampStillValid(File stamp, String key, File outputFolder) {
+        if (!stamp.isFile()) return false;
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(stamp))) {
+            if (!key.equals(reader.readLine())) return false;
+            String line;
+            int files = 0;
+            while ((line = reader.readLine()) != null) {
+                int tab = line.indexOf('\t');
+                if (tab <= 0) return false;
+                long size = Long.parseLong(line.substring(0, tab));
+                File f = new File(outputFolder, line.substring(tab + 1));
+                if (!f.isFile() || (size >= 0 && f.length() != size)) {
+                    Log.i(TAG, "Unpacking again: " + f + " is missing or changed");
+                    return false;
+                }
+                files++;
+            }
+            return files > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static void extractZipFromStream(ZipInputStream zis, File outputFolder, @Nullable String keepExistingPrefix,
+                                            @Nullable List<String> extractedFiles) throws IOException {
         if (!outputFolder.exists() && !outputFolder.mkdirs()) {
             throw new IOException("Failed to create output directory: " + outputFolder.getAbsolutePath());
         }
@@ -108,7 +202,9 @@ public class Utilities {
                     }
                 } else if (keepExistingPrefix != null && entryName.startsWith(keepExistingPrefix) && target.isFile()) {
                     Log.i(TAG, "Keeping existing " + targetPath);
+                    if (extractedFiles != null) extractedFiles.add(entryName);
                 } else {
+                    if (extractedFiles != null) extractedFiles.add(entryName);
                     File parent = target.getParentFile();
                     if (parent != null && !parent.exists() && !parent.mkdirs()) {
                         throw new IOException("Failed to create parent directory: " + parent.getAbsolutePath());
@@ -137,6 +233,42 @@ public class Utilities {
             }
         } catch (IOException e) {
             Log.e(TAG, "Failed to extract " + assetName + " from assets!", e);
+        }
+    }
+
+    public static final String DEFAULT_UNITY_BASE_LIBRARIES_SOURCE = "https://unity.bepinex.dev/libraries/{VERSION}.zip";
+
+    // CriCri Mods: an empty UnityBaseLibrariesSource makes BepInExFusion skip the Unity base libraries
+    // download (Il2CppInteropManager.DownloadUnityAssemblies returns early) and generate the interop
+    // without them. The config is kept between launches, so the value is written every time; a test build
+    // that allows downloads puts the default back.
+    public static void setUnityBaseLibrariesSource(File bepInExDir, String source) {
+        File config = new File(bepInExDir, "config/BepInEx.cfg");
+        if (!config.isFile()) {
+            Log.w(TAG, "BepInEx.cfg not found at " + config.getAbsolutePath());
+            return;
+        }
+        try {
+            String text;
+            try (InputStream in = new java.io.FileInputStream(config)) {
+                java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = in.read(buffer)) != -1) {
+                    bytes.write(buffer, 0, count);
+                }
+                text = bytes.toString("UTF-8");
+            }
+            String patched = text.replaceAll("(?m)^UnityBaseLibrariesSource\\s*=.*$",
+                    java.util.regex.Matcher.quoteReplacement("UnityBaseLibrariesSource = " + source));
+            if (!patched.equals(text)) {
+                try (OutputStream out = new FileOutputStream(config, false)) {
+                    out.write(patched.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+                Log.i(TAG, "UnityBaseLibrariesSource = '" + source + "' in " + config.getAbsolutePath());
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to patch BepInEx.cfg", e);
         }
     }
 

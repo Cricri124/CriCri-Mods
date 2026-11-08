@@ -9,4 +9,18 @@
     <item name="android:windowIsTranslucent">true</item>
     <item name="android:windowBackground">@android:color/transparent</item>
 </style>
+<!-- CriCri Mods: the home screen's colors (PLAY button and switches). -->
+<style name="Theme.CriCriMods" parent="Theme.Material3.Dark.NoActionBar">
+    <item name="colorPrimary">@color/cricri_accent</item>
+    <item name="colorOnPrimary">@android:color/white</item>
+    <item name="colorPrimaryContainer">@color/cricri_accent</item>
+    <item name="colorOnPrimaryContainer">@android:color/white</item>
+</style>
+<!-- CriCri Mods: the "Compartilhar" receiver only shows a dialog over whatever was on screen. -->
+<style name="Theme.CriCriMods.Transparente" parent="Theme.CriCriMods">
+    <item name="android:windowIsTranslucent">true</item>
+    <item name="android:windowBackground">@android:color/transparent</item>
+    <item name="android:windowNoTitle">true</item>
+    <item name="android:backgroundDimEnabled">false</item>
+</style>
 </resources>

@@ -1,0 +1,73 @@
+{
+  "formato": 1,
+  "numero": 1,
+  "emitido": "2026-11-08T08:04:27.678Z",
+  "mods": [
+    {
+      "id": "com.cricri.replay",
+      "name": "CriCri Replay",
+      "author": "CriCri",
+      "icon": "replay",
+      "version": "1.5.0",
+      "file": "CriCriReplay.dll",
+      "sha256": "f1a5d7c4cd6e55814c8cbc5defa6b8b66938db65a3ddafb1d591704f984e7386",
+      "description": "Assista às suas partidas de novo dentro do jogo.",
+      "details": [
+        "Grava sozinho cada partida que você joga, sem precisar apertar nada.",
+        "Abre a partida de novo no mapa, com os bonecos vestidos como estavam.",
+        "Dá pra seguir a visão de cada jogador.",
+        "Também abre os replays da Comunidade."
+      ],
+      "where": "Menu principal do jogo → Replays",
+      "enabledByDefault": true,
+      "gameVersions": [
+        "2026.11.3"
+      ],
+      "url": "CriCriReplay-1.5.0.dll"
+    },
+    {
+      "id": "br.com.cricribr.otimizacao",
+      "name": "Otimização",
+      "author": "CriCri",
+      "icon": "otimizacao",
+      "version": "0.3.3",
+      "file": "CriCriOtimizacao.dll",
+      "sha256": "6ec333e3f4f1bc279178782aedb5ef9057a92162aad0d3b1d198554c7d357a27",
+      "description": "FPS, resolução e modo flash, ajustados no jogo.",
+      "details": [
+        "Limite de FPS até o máximo da sua tela e contador de FPS na tela.",
+        "Resolução numa barra, como no PC (o tamanho novo vale quando o jogo abre).",
+        "Modo flash: o jogo abre sem a espera da tela de abertura e carrega mais rápido fora da rodada.",
+        "Movimento suave e texturas no máximo.",
+        "Modo streamer e nome na cor do jogador para quem usa o modo daltônico.",
+        "Sem anúncios, e o servidor CriCri BR na lista de regiões."
+      ],
+      "where": "No jogo: Definições → Gráficos (modo streamer em Geral)",
+      "hidden": true,
+      "listed": true,
+      "gameVersions": [],
+      "url": "CriCriOtimizacao-0.3.3.dll"
+    },
+    {
+      "id": "br.com.cricribr.conta",
+      "name": "Login",
+      "author": "CriCri",
+      "icon": "conta",
+      "version": "0.2.0",
+      "file": "CriCriConta.dll",
+      "sha256": "8f1e0a1ab363795729702e28e88ca4d42b1b5bac077c94cefde65608095cdff9",
+      "description": "Faz o jogo entrar na conta que você escolheu no app.",
+      "details": [
+        "Entrega ao jogo o login que você fez pelo site oficial da Innersloth.",
+        "O login fica só neste celular e o app não manda ele pra lugar nenhum além do jogo.",
+        "Guarda a roupa da sua conta: se o jogo entrar como convidado, ela volta quando a sua conta entrar de novo.",
+        "Se o login vencer, o JOGAR abre o login de novo; um toque no ✓ e o jogo já abre."
+      ],
+      "where": "Tela inicial do app → Conta",
+      "hidden": true,
+      "listed": true,
+      "gameVersions": [],
+      "url": "CriCriConta-0.2.0.dll"
+    }
+  ]
+}

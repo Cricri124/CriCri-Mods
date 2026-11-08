@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: icon of the optimization mod (drawn for this app): a lightning bolt, for speed. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/mod_otimizacao_fundo"
+        android:pathData="M12,0h24a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-24a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:fillColor="@color/mod_otimizacao"
+        android:pathData="M27.2,9.5L15.6,26.6L23.4,26.6L20.8,38.5L32.4,21.3L24.6,21.3Z" />
+</vector>

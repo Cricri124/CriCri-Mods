@@ -11,6 +11,13 @@ dependencies {
     implementation("androidx.coordinatorlayout:coordinatorlayout:1.3.0")
     implementation("com.google.android.material:material:1.14.0")
     implementation("com.google.protobuf:protobuf-javalite:4.36.1")
+
+    // CriCri Mods: tests that walk the home screen like a person would (Robolectric, on the PC; also save
+    // screenshots of each screen to fusionApp/build/telas for a visual check without a phone).
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
+    testImplementation("androidx.test.ext:junit:1.2.1")
 }
 
 android {
@@ -27,12 +34,37 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all {
+                // the PC has little free memory while other builds run
+                it.maxHeapSize = "1280m"
+                it.systemProperty("robolectric.graphicsMode", "NATIVE")
+            }
+        }
+    }
+
     defaultConfig {
         minSdk = 24
         targetSdk = 36
-        applicationId = "dev.allofus.fusioncore"
-        versionCode = 1
-        versionName = "0.0.1"
+        // CriCri Mods: the Play Store package id is permanent once published.
+        applicationId = "br.com.cricribr.mods"
+        versionCode = 2
+        versionName = "0.2.0"
+        // Google Play forbids downloading executable code at run time (Device and Network Abuse policy), so a Play
+        // build never fetches the unstripped libunity and the Unity base libraries. The CriCri chose (08/11/2026) the
+        // site only, no Play Store: gerar-apk-final.ps1 builds with -PcricriPermitirDownloads=true (the CriCri
+        // Replay needs those pieces: without them the replay opens paused, no Time.set_timeScale).
+        buildConfigField("boolean", "ALLOW_RUNTIME_DOWNLOADS", (project.findProperty("cricriPermitirDownloads") ?: "false").toString())
+        // The only game this launcher starts.
+        buildConfigField("String", "TARGET_PACKAGE", "\"com.innersloth.spacemafia\"")
+        // GPL-3.0: where people get the source of the exact build they have. Must be filled before
+        // distributing the app (gerar-apk-final.ps1 refuses to build a release without it).
+        buildConfigField("String", "SOURCE_URL", "\"${project.findProperty("cricriSourceUrl") ?: ""}\"")
+        // Mods updated from the site without a new APK (ModsRemotos): the signed catalog and the DLLs live here,
+        // served as plain files by the CRICRI BR server. https only; "" turns the check off.
+        buildConfigField("String", "MODS_URL", "\"${project.findProperty("cricriModsUrl") ?: "https://cricribr.com.br/mods/"}\"")
         ndk {
             abiFilters.add("arm64-v8a")
             // abiFilters.add("armeabi-v7a")
