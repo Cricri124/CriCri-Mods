@@ -17,7 +17,7 @@ namespace CriCriMods.Servidor
     public sealed class Plugin : BasePlugin
     {
         public const string Id = "br.com.cricribr.servidor";
-        public const string Versao = "0.3.0";
+        public const string Versao = "0.3.1";
         internal static BepInEx.Logging.ManualLogSource Registro;
 
         public override void Load()
@@ -29,13 +29,17 @@ namespace CriCriMods.Servidor
             // messages (OnEnable), which are real functions, never inlined.
             ClassInjector.RegisterTypeInIl2Cpp<Regiao>();
             ClassInjector.RegisterTypeInIl2Cpp<AbaSala>();
-            ClassInjector.RegisterTypeInIl2Cpp<BotaoCricriBr>();
+#if AMIGOS_DE_MENTIRA || AMIGOS_SERVIDOR_TESTE
+            ClassInjector.RegisterTypeInIl2Cpp<AmigosCricriBr>();
+#endif
             var objeto = new GameObject("CriCriServidor");
             UnityEngine.Object.DontDestroyOnLoad(objeto);
             objeto.hideFlags = HideFlags.HideAndDontSave;
             objeto.AddComponent<Regiao>();
             objeto.AddComponent<AbaSala>();
-            objeto.AddComponent<BotaoCricriBr>();   // the CRICRI BR button on the game's own main menu (08/11)
+#if AMIGOS_DE_MENTIRA || AMIGOS_SERVIDOR_TESTE
+            objeto.AddComponent<AmigosCricriBr>();
+#endif
 
             var h = new HarmonyLib.Harmony(Id);
             Prender(h, typeof(GameSettingMenu), nameof(DepoisMenuDono));

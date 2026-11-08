@@ -57,14 +57,29 @@ namespace CriCriMods
                 Plugin.Registro?.LogWarning("[jogo] nao li " + Arquivo + ": " + e.Message);
             }
             o ??= new Opcoes();
-            // First run (or an old file): as smooth as the screen goes, at the game's own size. 08/11: at the panel's
-            // full size (1640x720) the CriCri's phone fell to 45 FPS in a match; sharper is one slider away.
+            // First run (or an old file): as smooth as the screen goes, at the recommended size.
             if (o.Fps < 0) o.Fps = Math.Min(120, Tela.Maxima());
-            if (o.Resolucao < 0) o.Resolucao = 0;
+            if (o.Resolucao < 0) o.Resolucao = Recomendada();
             // Anti-aliasing was removed (black screen in Freeplay on the CriCri's phone, 08/11): an old file may
             // still hold 2x/4x.
             o.AntiSerrilhado = 0;
             return o;
+        }
+
+        // The stop of the resolution slider closest to 576 lines. 08/11, CriCri's phone (720 lines): 648 lines gave 35 to 43 FPS in a
+        // round with 13 players, and the game's own 500 lines look pixelated. 0 (the game's size) when the screen cannot be read.
+        public static int Recomendada()
+        {
+            try
+            {
+                int linhas = Math.Min(UnityEngine.Display.main.systemWidth, UnityEngine.Display.main.systemHeight);
+                if (linhas <= 0) return 0;
+                int melhor = 50;
+                foreach (int p in new[] { 60, 70, 80, 90, 100 })
+                    if (Math.Abs(linhas * p / 100 - 576) < Math.Abs(linhas * melhor / 100 - 576)) melhor = p;
+                return melhor;
+            }
+            catch { return 0; }
         }
 
         public void Salvar()

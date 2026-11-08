@@ -239,7 +239,32 @@ namespace CriCriMods.Servidor
             }
             if (painel.Botao.activeSelf != aqui) painel.Botao.SetActive(aqui);
             if (!aqui) { if (painel.Visivel) Esconder(painel, dono); return; }
+            if (dono) AjustarColuna(_menuDono, painel);
             if (painel.Visivel && painel.Desenhado != _versao + (_temDados ? 0 : 100000) + _aviso.GetHashCode()) Desenhar(painel);
+        }
+
+        GameSettingMenu _colunaAjustada;
+
+        // The game's window has room for three tabs: the fourth ran out of its frame (CriCri's test, 08/11). Once per menu and only
+        // where our tab shows: the column starts a little higher, with 88% of the step and the buttons at 95%. Measured on the phone
+        // at 1640x720: step 76 px, button 64 px, free space from 400 to 666 px.
+        void AjustarColuna(GameSettingMenu m, Painel p)
+        {
+            if (_colunaAjustada == m) return;
+            var a = m.GamePresetsButton;
+            var b = m.GameSettingsButton;
+            var c = m.RoleSettingsButton;
+            if (a == null || b == null || c == null || p.Botao == null) return;
+            _colunaAjustada = m;
+            float topo = a.transform.localPosition.y, passo = b.transform.localPosition.y - topo;
+            var coluna = new[] { a.transform, b.transform, c.transform, p.Botao.transform };
+            for (int i = 0; i < coluna.Length; i++)
+            {
+                var pos = coluna[i].localPosition;
+                pos.y = topo - 0.166f * passo + i * 0.88f * passo;
+                coluna[i].localPosition = pos;
+                coluna[i].localScale = coluna[i].localScale * 0.95f;
+            }
         }
 
         Painel MontarDono(GameSettingMenu m)
@@ -290,6 +315,7 @@ namespace CriCriMods.Servidor
             {
                 pb.OnClick = new UnityEngine.UI.Button.ButtonClickedEvent();
                 pb.OnClick.AddListener(clique);
+                pb.SelectButton(false);   // the model may be the tab that is selected right now
             }
             go.SetActive(false);
             return go;
@@ -321,6 +347,7 @@ namespace CriCriMods.Servidor
                     if (m.PresetsTab != null) m.PresetsTab.gameObject.SetActive(false);
                 }
                 else if (p.Origem != null) p.Origem.gameObject.SetActive(false);
+                MarcarAba(p, dono);
                 p.Conteudo.SetActive(true);
                 p.Desenhado = -2;
                 _proxLeitura = 0f;   // read now
@@ -329,12 +356,25 @@ namespace CriCriMods.Servidor
             catch (Exception e) { Erro("mostrar", e); }
         }
 
+        // The white outline of a tab is the game's SelectButton: ours takes it and theirs lose it, like GameSettingMenu.ChangeTab does.
+        void MarcarAba(Painel p, bool dono)
+        {
+            var nossa = p.Botao != null ? p.Botao.GetComponent<PassiveButton>() : null;
+            if (nossa != null) nossa.SelectButton(true);
+            var deles = dono
+                ? new[] { _menuDono.GamePresetsButton, _menuDono.GameSettingsButton, _menuDono.RoleSettingsButton }
+                : new[] { _menuVer.taskTabButton, _menuVer.rolesTabButton };
+            foreach (var b in deles) if (b != null) b.SelectButton(false);
+        }
+
         static void Esconder(Painel p, bool dono)
         {
             try
             {
                 if (p.Conteudo != null) p.Conteudo.SetActive(false);
                 if (!dono && p.Origem != null) p.Origem.gameObject.SetActive(true);
+                var nossa = p.Botao != null ? p.Botao.GetComponent<PassiveButton>() : null;
+                if (nossa != null) nossa.SelectButton(false);
             }
             catch { }
         }
@@ -349,7 +389,11 @@ namespace CriCriMods.Servidor
             p.Desenhado = _versao + (_temDados ? 0 : 100000) + _aviso.GetHashCode();
 
             string topo = !SalaApi.TemChave
+#if CRICRI_PC
+                ? "Ligue sua conta do CRICRI BR no botão CONTA BR do menu principal pra ver as opções desta sala."
+#else
                 ? "Ligue sua conta do CRICRI BR no app (Conta → Colar chave) pra ver as opções desta sala."
+#endif
                 : _aviso;
             int i = 0;
             if (!string.IsNullOrEmpty(topo)) Linha(p, i++, topo, null, null);

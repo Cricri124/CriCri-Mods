@@ -333,7 +333,7 @@ public class PessoaUsandoTest {
         assertTrue(lista.getChildCount() >= 4);
         View replay = lista.getChildAt(0);
         assertEquals("CriCri Replay", ((TextView) replay.findViewById(R.id.mod_name)).getText().toString());
-        assertEquals("CriCri · v1.7.2", ((TextView) replay.findViewById(R.id.mod_autor)).getText().toString());
+        assertEquals("CriCri · v1.7.3", ((TextView) replay.findViewById(R.id.mod_autor)).getText().toString());
         linha(lista, "Servidor CRICRI BR");
         // the ones that are part of the app: no switch, "Sempre ligado"
         View otimizacao = linha(lista, "Otimização");
@@ -346,7 +346,7 @@ public class PessoaUsandoTest {
         Dialog folha = tela.ultimaFolha;
         assertNotNull(folha);
         assertTrue(folha.isShowing());
-        assertEquals("por CriCri · versão 1.7.2", ((TextView) folha.findViewById(R.id.sheet_autor)).getText().toString());
+        assertEquals("por CriCri · versão 1.7.3", ((TextView) folha.findViewById(R.id.sheet_autor)).getText().toString());
         assertTrue(((LinearLayout) folha.findViewById(R.id.sheet_itens)).getChildCount() >= 3);
         assertTrue(temTexto(folha.getWindow().getDecorView(), "Replays"));
         assertTrue(temTexto(folha.getWindow().getDecorView(), "Conferido no Among Us 2026.11.3"));

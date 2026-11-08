@@ -98,7 +98,10 @@
     <string name="conta_menu_sair">Sair desta conta</string>
     <string name="conta_sair_feito">Você saiu. O jogo vai entrar como convidado, e o próximo Entrar mostra a lista de contas do Google.</string>
     <string name="login_como_title">Como entrar</string>
-    <string name="login_como_texto">1. Escolha a sua conta do Google.\n2. Abre a página oficial da Innersloth. Não mexa nela.\n3. Toque no ✓ lá em cima (Usar este login). Se ele não aparecer: ⋮ → Compartilhar → CriCri Mods.\n\nO app volta sozinho. O login vale 1 hora (regra do Google); quando vencer, o JOGAR já abre o login de novo. Sua roupa fica guardada.</string>
+    <string name="login_passo1">1. Toque em Entrar.</string>
+    <string name="login_passo2">2. Escolha a sua conta do Google.</string>
+    <string name="login_passo3">3. Abre a página oficial da Innersloth. Não mexa nela: toque no ✓ lá em cima (Usar este login).</string>
+    <string name="login_passos_nota">Se o ✓ não aparecer: ⋮ → Compartilhar → CriCri Mods.\n\nO app volta sozinho. O login vale 1 hora (regra do Google); quando vencer, o JOGAR já abre o login de novo. Sua roupa fica guardada.</string>
     <string name="login_abrir">Abrir o Google</string>
     <string name="login_cancelar">Agora não</string>
     <string name="login_lembrete">Na página da Innersloth, toque no ✓ lá em cima</string>

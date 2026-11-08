@@ -27,7 +27,7 @@ What this fork changes:
 |---|---|---|
 | Otimização | `embutidos/CriCriOtimizacao` | FPS limit and counter, resolution slider, quick start, streamer mode |
 | Login | `embutidos/CriCriConta` | Hands the login made in the app to the game; keeps the account's outfit |
-| Servidor CRICRI BR | `embutidos/CriCriServidor` | The CRICRI BR region, a CRICRI BR button on the main menu, the room options tab |
+| Servidor CRICRI BR | `embutidos/CriCriServidor` | The CRICRI BR region and the room options tab |
 | CriCri Replay | binary only (`fusionApp/src/main/assets/mods/CriCriReplay.dll`) | Watch your matches again inside the game |
 
 `embutidos/CriCriMenu` is kept for reference and is not in the app. Every DLL in `assets/mods` is listed in

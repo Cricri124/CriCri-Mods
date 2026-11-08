@@ -285,7 +285,7 @@ namespace CriCriMods
             {
                 Otimizacao.Medidas(p, out int l, out int a);
                 if (temDoJogo && Math.Abs(a - jogoA) <= 4) continue;   // the game's own size stands for it
-                lista.Add(new Passo { Valor = p, Largura = l, Altura = a, Texto = l + "x" + a });
+                lista.Add(new Passo { Valor = p, Largura = l, Altura = a, Texto = l + "x" + a + (p == Opcoes.Recomendada() ? " (recomendada)" : "") });
             }
             if (temDoJogo) lista.Add(new Passo { Valor = 0, Largura = jogoL, Altura = jogoA, Texto = jogoL + "x" + jogoA + " (padrão)" });
             else lista.Insert(0, new Passo { Valor = 0, Texto = "padrão do jogo" });
@@ -570,7 +570,17 @@ namespace CriCriMods
                 // to compare: "Não" = the game exactly as it comes (the FPS counter stays)
                 Rotulo = () => "Otimização: " + (o.Ligada ? "Sim" : "Não (jogo normal)"),
                 Ligada = () => o.Ligada,
-                Clique = () => { o.Ligada = !o.Ligada; Salvar(); },
+                Clique = () =>
+                {
+                    o.Ligada = !o.Ligada;
+                    // CriCri, 08/11: turning it on brings the recommended size; the slider moves to it on the next tick
+                    if (o.Ligada)
+                    {
+                        o.Resolucao = Opcoes.Recomendada();
+                        if (m.Resolucao != null) m.Resolucao.Indice = -1;
+                    }
+                    Salvar();
+                },
             });
             m.Opcoes.Add(new Opcao
             {

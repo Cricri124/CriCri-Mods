@@ -244,7 +244,7 @@ public class SelectorActivity extends AppCompatActivity {
         }
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.login_como_title)
-                .setMessage(R.string.login_como_texto)
+                .setView(R.layout.dialog_login_como)
                 .setPositiveButton(R.string.login_abrir, (d, w) -> abrirLoginDoGoogle())
                 .setNegativeButton(R.string.login_cancelar, null)
                 .show();
@@ -260,7 +260,7 @@ public class SelectorActivity extends AppCompatActivity {
             switch (item.getItemId()) {
                 case 1:
                     new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
-                            .setTitle(R.string.login_como_title).setMessage(R.string.login_como_texto)
+                            .setTitle(R.string.login_como_title).setView(R.layout.dialog_login_como)
                             .setPositiveButton(R.string.conta_fechar, null).show();
                     return true;
                 case 2:

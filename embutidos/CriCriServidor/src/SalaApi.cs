@@ -52,6 +52,11 @@ namespace CriCriMods.Servidor
 
         static readonly object _travaCliente = new object();
 
+#if CRICRI_PC
+        // PC: the account screen (PcConta.cs) changes the key while the game runs, and the client keeps the old one in its headers.
+        internal static void TrocarChave(string k) { lock (_travaCliente) { _chave = k; _http?.Dispose(); _http = null; } }
+#endif
+
         static HttpClient Cliente()
         {
             lock (_travaCliente)
@@ -133,7 +138,11 @@ namespace CriCriMods.Servidor
         // The words for a status, as the player reads them in the tab.
         internal static string Aviso(int codigo) => codigo switch
         {
+#if CRICRI_PC
+            401 => "A chave do CRICRI BR foi recusada. Gere uma nova em cricribr.com.br (Minha conta) e cole no botão CONTA BR do menu.",
+#else
             401 => "A chave do CRICRI BR foi recusada. Gere uma nova em cricribr.com.br → Minha conta e cole no app.",
+#endif
             403 => "O servidor CRICRI BR recusou o pedido.",
             409 => "Não deu pra mudar agora: só o dono, e só no lobby antes da partida.",
             429 => "Muitos pedidos seguidos. Espere um minuto.",

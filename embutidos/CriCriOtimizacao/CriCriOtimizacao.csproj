@@ -17,7 +17,7 @@
     <Nullable>disable</Nullable>
     <AssemblyName>CriCriOtimizacao</AssemblyName>
     <RootNamespace>CriCriMods</RootNamespace>
-    <Version>0.4.1</Version>
+    <Version>0.4.2</Version>
     <DebugType>none</DebugType>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
