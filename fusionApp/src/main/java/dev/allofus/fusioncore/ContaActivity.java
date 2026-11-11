@@ -35,9 +35,15 @@ public class ContaActivity extends AppCompatActivity {
             // the ✓ "Usar este login" button of the login tab: the browser sends the page's address as the data
             texto = intent.getDataString();
         }
+        if (!Conta.loginFoiPedido(this)) {
+            Log.w(TAG, "login recebido sem o jogador ter pedido: ignorado");
+            mostrarErro(R.string.conta_erro_nao_pedido);
+            return;
+        }
         try {
             Conta.Login login = Conta.extrair(texto);
             Conta.salvar(this, login);
+            Conta.esquecerPedidoDeLogin(this);
             String hora = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(login.expiraEmMs));
             String nome = login.nome.isEmpty() ? getString(R.string.conta_sem_nome) : login.nome;
             // No dialog to tap through: say it in a toast and go straight back to the app's home screen, or, when the

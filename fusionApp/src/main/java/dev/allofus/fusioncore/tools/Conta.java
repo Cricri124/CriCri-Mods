@@ -129,6 +129,20 @@ public final class Conta {
         }
     }
 
+    private static final String PREFS_LOGIN = "cricri_login_pedido", PEDIDO_EM = "em";
+    private static final long VALIDADE_DO_PEDIDO_MS = 15 * 60 * 1000L;
+
+    /** ContaActivity is reachable by any app and by "share": a login only counts right after the player asked for one in the app. */
+    public static boolean loginFoiPedido(Context context) {
+        long em = context.getSharedPreferences(PREFS_LOGIN, Context.MODE_PRIVATE).getLong(PEDIDO_EM, 0);
+        long passou = System.currentTimeMillis() - em;
+        return em > 0 && passou >= 0 && passou < VALIDADE_DO_PEDIDO_MS;
+    }
+
+    public static void esquecerPedidoDeLogin(Context context) {
+        context.getSharedPreferences(PREFS_LOGIN, Context.MODE_PRIVATE).edit().remove(PEDIDO_EM).apply();
+    }
+
     public static File arquivo(Context context) {
         return new File(context.getNoBackupFilesDir(), ARQUIVO);
     }
@@ -189,6 +203,7 @@ public final class Conta {
      * The tab opens in the caller's task, so ContaActivity can close it by restarting that task.
      */
     public static boolean abrirLogin(android.app.Activity tela) {
+        tela.getSharedPreferences(PREFS_LOGIN, Context.MODE_PRIVATE).edit().putLong(PEDIDO_EM, System.currentTimeMillis()).apply();
         Intent abrir = new Intent(Intent.ACTION_VIEW, Uri.parse(linkLogin(tela))).addCategory(Intent.CATEGORY_BROWSABLE);
         Bundle sessao = new Bundle();
         sessao.putBinder("android.support.customtabs.extra.SESSION", null);   // marks the intent as a Custom Tab

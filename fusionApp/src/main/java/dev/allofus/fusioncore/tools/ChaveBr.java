@@ -60,6 +60,14 @@ public final class ChaveBr {
         return arquivo(context).isFile();
     }
 
+    /** Called by the CRICRI BR mod, inside the game, when the key arrives with the account verification. */
+    public static void salvarDoJogo(String chave) throws Exception {
+        String limpa = limpar(chave);
+        Context app = (Context) Class.forName("android.app.ActivityThread").getMethod("currentApplication").invoke(null);
+        if (limpa == null || app == null) throw new IllegalStateException("sem chave ou sem app");
+        salvar(app, limpa);
+    }
+
     public static void salvar(Context context, String chave) throws Exception {
         Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
         c.init(Cipher.ENCRYPT_MODE, segredo());

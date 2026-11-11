@@ -18,6 +18,19 @@ public final class LibUnityDownloader {
     private static final String TAG = "FusionCore";
     private static final String LIBUNITY_DOWNLOAD_URL = "https://github.com/All-Of-Us-Mods/FusionCore.UnityDependencies/releases/download/";
     private static final String LIBUNITY_CACHE_META_FILE = "libunity.cache.properties";
+    // CriCri Mods (audit, 09/11): this is native code loaded in the process that holds the player's login, from a repository that is not ours.
+    // Only the exact files below are accepted, { libunity.so, libunity.sym.so }. A version not listed uses the game's own libunity.
+    // New Unity version: compare the "digest" of the release with the file, and add it here.
+    private static final java.util.Map<String, String[]> ACEITOS = new java.util.HashMap<>();
+    static {
+        // the phone's Among Us (conferred on the device, 09/11: the file already in use there has this same hash)
+        ACEITOS.put("2022.3.62f3|arm64-v8a", new String[] {
+                "69e92df2e98dc260086e45e77a201df1d6f1759a146b7434667318da2cbbf5b6",
+                "f73e93f8b29ef844e38564ffd5ffe42a2ae398d6f363a5ae45af4fc9078c4b36" });
+        ACEITOS.put("2022.3.44f1|arm64-v8a", new String[] {
+                "20ba0001f7b5fb8634cd195a9c690bc78dbbcc0f7bd98392efd210cf8c5aa287",
+                "0bef84fd45d2a1a43b5182be7d1eddb950c399431a852a3a88597c076cc133ef" });
+    }
 
     public interface DownloadProgressListener {
         void onDownloadStarted(String url, long totalBytes);
@@ -74,8 +87,15 @@ public final class LibUnityDownloader {
         
         String downloadVersion = version.trim();
         String cacheKey = downloadVersion + "|" + currentAbi;
+        String[] aceitos = ACEITOS.get(cacheKey);
+        if (aceitos == null) {
+            Log.w(TAG, "No pinned libunity for " + cacheKey + ": using the game's own");
+            notifyDownloadFinished(progressListener, false, false);
+            return false;
+        }
 
-        if (isCachedLibUnityValid(outputLibUnity, outputLibUnitySym, cacheMetaFile, cacheKey)) {
+        if (isCachedLibUnityValid(outputLibUnity, outputLibUnitySym, cacheMetaFile, cacheKey)
+                && aceitos[0].equals(sha256(outputLibUnity)) && aceitos[1].equals(sha256(outputLibUnitySym))) {
             Log.i(TAG, "Using cached libunity and symbols for " + cacheKey + " at " + outputDir.getAbsolutePath());
             notifyDownloadFinished(progressListener, true, true);
             return true;
@@ -95,6 +115,18 @@ public final class LibUnityDownloader {
 
         boolean libUnitySymDownloaded = downloadUrlToFile(symUrl, outputLibUnitySym, progressListener);
         if (!libUnitySymDownloaded) {
+            notifyDownloadFinished(progressListener, false, false);
+            return false;
+        }
+
+        if (!aceitos[0].equals(sha256(outputLibUnity)) || !aceitos[1].equals(sha256(outputLibUnitySym))) {
+            Log.e(TAG, "Downloaded libunity does not match the pinned hash: discarded");
+            //noinspection ResultOfMethodCallIgnored
+            outputLibUnity.delete();
+            //noinspection ResultOfMethodCallIgnored
+            outputLibUnitySym.delete();
+            //noinspection ResultOfMethodCallIgnored
+            cacheMetaFile.delete();
             notifyDownloadFinished(progressListener, false, false);
             return false;
         }
@@ -170,6 +202,20 @@ public final class LibUnityDownloader {
             if (tempFile.exists() && !tempFile.delete()) {
                 Log.w(TAG, "Failed to clean temporary file: " + tempFile.getAbsolutePath());
             }
+        }
+    }
+
+    private static String sha256(File arquivo) {
+        try (InputStream in = new FileInputStream(arquivo)) {
+            java.security.MessageDigest d = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buffer)) != -1) d.update(buffer, 0, n);
+            StringBuilder hex = new StringBuilder();
+            for (byte b : d.digest()) hex.append(String.format(java.util.Locale.ROOT, "%02x", b));
+            return hex.toString();
+        } catch (Exception e) {
+            return "";
         }
     }
 

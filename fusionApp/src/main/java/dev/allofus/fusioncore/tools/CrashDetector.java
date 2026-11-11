@@ -46,7 +46,10 @@ public class CrashDetector {
                     continue;
                 }
 
-                var outputFile = new File(fusionFolder, "exit_info_" + System.currentTimeMillis() + ".txt");
+                // CriCri Mods: named by the time of the exit itself. The same last exit comes back on every opening; it is written once (and the
+                // "o jogo fechou sozinho" card is offered once).
+                var outputFile = new File(fusionFolder, "exit_info_" + exitInfo.getTimestamp() + ".txt");
+                if (outputFile.exists()) continue;
                 writeExitInfo(context, exitInfo, outputFile);
                 Log.i(TAG, "wrote exit info log to " + outputFile.getAbsolutePath());
             }

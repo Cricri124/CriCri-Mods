@@ -20,8 +20,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 // CriCri Mods: the mods ship inside the APK (assets/mods) and are never downloaded, so publishing or
 // updating a mod means publishing a new version of the app. Google Play does not allow apps to fetch
@@ -206,11 +208,13 @@ public final class ModsManager {
 
     // Puts the enabled mods in BepInEx/plugins and removes the disabled ones. Only the files listed in the
     // catalog are touched. A packaged DLL whose hash does not match the catalog is never installed.
-    public static void install(Context context, File bepInExDir) {
+    // Returns the files verified in the folder: nothing else may stay there (Integridade).
+    public static Set<String> install(Context context, File bepInExDir) {
+        Set<String> verificados = new HashSet<>();
         File plugins = new File(bepInExDir, "plugins");
         if (!plugins.isDirectory() && !plugins.mkdirs()) {
             Log.e(TAG, "Failed to create " + plugins.getAbsolutePath());
-            return;
+            return verificados;
         }
 
         // taken out by the site's catalog (a version that breaks): never left in the plugins folder
@@ -265,6 +269,7 @@ public final class ModsManager {
                 }
                 if (target.isFile() && sha256(target).equals(mod.sha256)) {
                     Log.i(TAG, mod.name + " " + mod.version + " already installed");
+                    verificados.add(mod.file);
                     continue;
                 }
 
@@ -279,10 +284,12 @@ public final class ModsManager {
                     throw new IOException("Failed to move " + temp.getAbsolutePath());
                 }
                 Log.i(TAG, "Installed " + mod.name + " " + mod.version + " to " + target.getAbsolutePath());
+                verificados.add(mod.file);
             } catch (IOException e) {
                 Log.e(TAG, "Failed to install " + mod.name, e);
             }
         }
+        return verificados;
     }
 
     private static SharedPreferences prefs(Context context) {

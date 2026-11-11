@@ -23,7 +23,12 @@ namespace CriCriMods.Servidor
     internal static class SalaApi
     {
         const string Variavel = "CRICRI_BR_CHAVE";
-        const string Base = "https://cricribr.com.br/api/mod/sala/";
+#if AMIGOS_SERVIDOR_TESTE
+        internal const string Site = "https://cricribr.com.br:22034";
+#else
+        internal const string Site = "https://cricribr.com.br";
+#endif
+        const string Base = Site + "/api/mod/sala/";
 
         static string _chave;
         static HttpClient _http;
@@ -48,12 +53,22 @@ namespace CriCriMods.Servidor
         }
 
         internal static bool TemChave => _chave != null;
+        internal static string ChaveDeAgora => _chave;
+
+        // 401 on the phone: the key stopped working (the account was linked somewhere else). Without it the next lobby offers to link this device, with no site.
+        // Only the key that was refused: a new one may have arrived while the answer travelled. The saved copy is replaced when the link succeeds.
+        internal static void Recusada(int codigo, string usada)
+        {
+#if !CRICRI_PC
+            if (codigo == 401 && usada != null && usada == _chave) TrocarChave(null);
+#endif
+        }
         internal static bool Ocupado => _ocupado;
 
         static readonly object _travaCliente = new object();
 
-#if CRICRI_PC
-        // PC: the account screen (PcConta.cs) changes the key while the game runs, and the client keeps the old one in its headers.
+#if CRICRI_PC || AMIGOS_SERVIDOR_TESTE || AMIGOS_PUBLICO
+        // PC: the account screen (PcConta.cs) changes the key while the game runs; phone: the key arrives with the verification. The client keeps the old one in its headers.
         internal static void TrocarChave(string k) { lock (_travaCliente) { _chave = k; _http?.Dispose(); _http = null; } }
 #endif
 
@@ -88,6 +103,7 @@ namespace CriCriMods.Servidor
         {
             if (_chave == null || _ocupado || DateTime.UtcNow < _naoAntes) return;
             _ocupado = true;
+            string usada = _chave;
             Task.Run(async () =>
             {
                 var l = new Leitura();
@@ -103,27 +119,30 @@ namespace CriCriMods.Servidor
                         l.Corpo = JsonDocument.Parse(await r.Content.ReadAsStringAsync().ConfigureAwait(false));
                 }
                 catch { l.Codigo = 0; }
-                Respostas.Enqueue(() => { _ocupado = false; depois(l); });
+                Respostas.Enqueue(() => { _ocupado = false; Recusada(l.Codigo, usada); depois(l); });
             });
         }
 
         // PUT the values to the current room (agora) or to the account's next rooms (padrao).
-        internal static void Gravar(bool padrao, Dictionary<string, object> valores, Action<int> depois)
+        internal static void Gravar(bool padrao, Dictionary<string, object> valores, Action<int, string> depois)
         {
-            if (_chave == null || DateTime.UtcNow < _naoAntes) { depois(429); return; }
+            if (_chave == null || DateTime.UtcNow < _naoAntes) { depois(429, null); return; }
             string json = JsonSerializer.Serialize(new Dictionary<string, object> { ["valores"] = valores });
+            string usada = _chave;
             Task.Run(async () =>
             {
                 int codigo;
+                string resposta = null;
                 try
                 {
                     using var corpo = new StringContent(json, Encoding.UTF8, "application/json");
                     using var r = await Cliente().PutAsync(Base + (padrao ? "predefinicao" : "atual"), corpo).ConfigureAwait(false);
                     codigo = (int)r.StatusCode;
                     Esperar(r);
+                    if (codigo == 200) resposta = await r.Content.ReadAsStringAsync().ConfigureAwait(false);   // "recusas": what did not go through
                 }
                 catch { codigo = 0; }
-                Respostas.Enqueue(() => depois(codigo));
+                Respostas.Enqueue(() => { Recusada(codigo, usada); depois(codigo, resposta); });
             });
         }
 
@@ -141,10 +160,10 @@ namespace CriCriMods.Servidor
 #if CRICRI_PC
             401 => "A chave do CRICRI BR foi recusada. Gere uma nova em cricribr.com.br (Minha conta) e cole no botão CONTA BR do menu.",
 #else
-            401 => "A chave do CRICRI BR foi recusada. Gere uma nova em cricribr.com.br → Minha conta e cole no app.",
+            401 => "Sua conta foi ligada em outro aparelho. Entre numa sala do CRICRI BR para ligar neste.",
 #endif
-            403 => "O servidor CRICRI BR recusou o pedido.",
-            409 => "Não deu pra mudar agora: só o dono, e só no lobby antes da partida.",
+            403 => "Só quem criou a sala pode mudar isso.",
+            409 => "As opções da sala só mudam no lobby, antes ou depois da partida.",
             429 => "Muitos pedidos seguidos. Espere um minuto.",
             0 => "Sem conexão com o servidor CRICRI BR agora.",
             _ => "As opções da sala chegam com o servidor CRICRI BR.",

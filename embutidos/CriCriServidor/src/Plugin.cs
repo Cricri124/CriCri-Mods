@@ -1,3 +1,6 @@
+#if AMIGOS_SERVIDOR_TESTE || AMIGOS_PUBLICO
+#define AMIGOS_REAL
+#endif
 using System;
 using BepInEx;
 using BepInEx.Unity.IL2CPP;
@@ -17,7 +20,7 @@ namespace CriCriMods.Servidor
     public sealed class Plugin : BasePlugin
     {
         public const string Id = "br.com.cricribr.servidor";
-        public const string Versao = "0.3.1";
+        public const string Versao = "0.4.0";
         internal static BepInEx.Logging.ManualLogSource Registro;
 
         public override void Load()
@@ -29,16 +32,22 @@ namespace CriCriMods.Servidor
             // messages (OnEnable), which are real functions, never inlined.
             ClassInjector.RegisterTypeInIl2Cpp<Regiao>();
             ClassInjector.RegisterTypeInIl2Cpp<AbaSala>();
-#if AMIGOS_DE_MENTIRA || AMIGOS_SERVIDOR_TESTE
+#if AMIGOS_DE_MENTIRA || AMIGOS_REAL
             ClassInjector.RegisterTypeInIl2Cpp<AmigosCricriBr>();
+#endif
+#if (AMIGOS_SERVIDOR_TESTE || AMIGOS_PUBLICO) && !CRICRI_PC
+            ClassInjector.RegisterTypeInIl2Cpp<LigarNaVerificacao>();
 #endif
             var objeto = new GameObject("CriCriServidor");
             UnityEngine.Object.DontDestroyOnLoad(objeto);
             objeto.hideFlags = HideFlags.HideAndDontSave;
             objeto.AddComponent<Regiao>();
             objeto.AddComponent<AbaSala>();
-#if AMIGOS_DE_MENTIRA || AMIGOS_SERVIDOR_TESTE
+#if AMIGOS_DE_MENTIRA || AMIGOS_REAL
             objeto.AddComponent<AmigosCricriBr>();
+#endif
+#if (AMIGOS_SERVIDOR_TESTE || AMIGOS_PUBLICO) && !CRICRI_PC
+            objeto.AddComponent<LigarNaVerificacao>();
 #endif
 
             var h = new HarmonyLib.Harmony(Id);
@@ -69,6 +78,11 @@ namespace CriCriMods.Servidor
 
         public const string Nome = "CriCri BR";
         const string Endereco = "cricribr.com.br";
+#if AMIGOS_SERVIDOR_TESTE
+        const ushort Porta = 22034;   // the test server: this build never reaches the catalog (mods-de-teste.js)
+#else
+        const ushort Porta = 443;
+#endif
         bool _feito, _avisou;
         float _prox;
 
@@ -94,11 +108,19 @@ namespace CriCriMods.Servidor
             var regioes = servidores.AvailableRegions;
             if (regioes != null)
                 for (int i = 0; i < regioes.Length; i++)
-                    if (regioes[i] != null && regioes[i].Name == Nome) { _feito = true; return; }
+                    if (regioes[i] != null && regioes[i].Name == Nome)
+                    {
+                        // phone 08/11: the game keeps the region it saved, so a build for another port kept talking to the old server
+                        var salvos = regioes[i].Servers;
+                        if (salvos != null && salvos.Length > 0 && salvos[0].Port == Porta) { _feito = true; return; }
+                        break;
+                    }
 
-            var lista = new Il2CppReferenceArray<ServerInfo>(new[] { new ServerInfo("http-1", "https://" + Endereco, 443, false) });
+            bool estavaNela = servidores.CurrentRegion != null && servidores.CurrentRegion.Name == Nome;
+            var lista = new Il2CppReferenceArray<ServerInfo>(new[] { new ServerInfo("http-1", "https://" + Endereco, Porta, false) });
             var regiao = new StaticHttpRegionInfo(Nome, StringNames.NoTranslation, Endereco, lista, null);
             servidores.AddOrUpdateRegion(regiao.Cast<IRegionInfo>());
+            if (estavaNela) servidores.SetRegion(regiao.Cast<IRegionInfo>());
             _feito = true;
             Plugin.Registro.LogInfo("[servidor] " + Nome + " acrescentado na lista de regioes");
         }

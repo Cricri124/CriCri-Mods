@@ -45,7 +45,7 @@ namespace CriCriMods
         {
             public GameObject Objeto;
             public SlideBar Slide;
-            public TextMeshPro Valor;
+            public TextMeshPro Titulo, Valor;
             public List<Passo> Passos;
             public int Indice = -1, Aplicado = -1;
             public float MudouEm;
@@ -259,17 +259,16 @@ namespace CriCriMods
             if (titulo != null)
             {
                 titulo.text = "Resolução";
+                b.Titulo = titulo;
+                // centered over the bar: the slider's own place, left of the bar, stuck out of the window on the phone
+                titulo.alignment = TextAlignmentOptions.Center;
+                var rt = titulo.rectTransform;
+                rt.pivot = new Vector2(0.5f, 0.5f);
+                rt.sizeDelta = new Vector2(Math.Max(rt.sizeDelta.x, 4f), rt.sizeDelta.y);
                 // the size under the bar, like the PC's "1920x1080"
                 var copia = UnityEngine.Object.Instantiate(titulo.gameObject, go.transform);
                 copia.name = "CriCriResolucaoValor";
                 b.Valor = copia.GetComponent<TextMeshPro>();
-                if (b.Valor != null)
-                {
-                    b.Valor.alignment = TextAlignmentOptions.Center;
-                    var rt = b.Valor.rectTransform;
-                    rt.pivot = new Vector2(0.5f, 0.5f);
-                    rt.sizeDelta = new Vector2(Math.Max(rt.sizeDelta.x, 4f), rt.sizeDelta.y);
-                }
             }
             return b;
         }
@@ -480,10 +479,10 @@ namespace CriCriMods
                 if (m.Ancora != null) Log.LogInfo("[aba] referencia em Graficos: " + m.Ancora.name);
             }
             Vector3 centro = m.Ancora != null ? conteudo.InverseTransformPoint(m.Ancora.position) : Vector3.zero;
-            float passoY = altura * 1.3f;
+            float passoY = altura * 1.6f;
             float meiaColuna = largura * 0.5f + largura * 0.04f;
-            // Six above the game's button (three rows; a fourth would reach the tabs once the slider is on top), the
-            // rest below it; a lone one in its row is centered.
+            // Six above the game's button (three rows; a fourth would reach the tabs), the rest below it; a lone one in
+            // its row is centered. The resolution slider goes under all of them.
             const int Acima = 6;
             int filas = (Math.Min(visiveis, Acima) + 1) / 2;
             int abaixo = Math.Max(0, visiveis - Acima);
@@ -509,7 +508,7 @@ namespace CriCriMods
                 k++;
                 if ((op.Objeto.transform.localPosition - alvo).sqrMagnitude > 0.0001f) op.Objeto.transform.localPosition = alvo;
             }
-            PosicionarBarra(m, conteudo, centro, passoY, filas);
+            PosicionarBarra(m, conteudo, centro, centro.y - passoY * ((abaixo + 1) / 2), altura * 1.3f);
             if (!m.Posicionou)
             {
                 m.Posicionou = true;
@@ -517,25 +516,17 @@ namespace CriCriMods
             }
         }
 
-        static void PosicionarBarra(Montagem m, Transform conteudo, Vector3 centro, float passoY, int filas)
+        static void PosicionarBarra(Montagem m, Transform conteudo, Vector3 centro, float yUltimaLinha, float passoY)
         {
             var b = m.Resolucao;
             if (b == null || b.Objeto == null) return;
             if (!b.Objeto.activeSelf) b.Objeto.SetActive(true);
-            // the bar a step and a half above the top row; the size under it
-            float yBarra = centro.y + passoY * (filas + 1.5f);
+            // under the last button, top to bottom: the name, the bar, the size
+            float yBarra = yUltimaLinha - passoY * 1.7f;
             Vector3 local = b.Objeto.transform.localPosition;
             if (!b.Centralizou && b.Slide.Bar != null && b.Slide.Bar.bounds.size.x > 0.01f)
             {
-                // the whole slider (name + bar) centered in the tab, like the PC
-                Bounds juntos = b.Slide.Bar.bounds;
-                if (b.Slide.Title != null && b.Slide.Title.transform.IsChildOf(b.Objeto.transform))
-                {
-                    var rt = b.Slide.Title.GetComponent<Renderer>();
-                    if (rt != null && rt.bounds.size.x > 0.01f) juntos.Encapsulate(rt.bounds);
-                }
-                float meioLocal = conteudo.InverseTransformPoint(juntos.center).x;
-                local.x += centro.x - meioLocal;
+                local.x += centro.x - conteudo.InverseTransformPoint(b.Slide.Bar.bounds.center).x;
                 b.Centralizou = true;
             }
             // the root's y so that the BAR (not the root) sits on yBarra
@@ -547,11 +538,17 @@ namespace CriCriMods
             }
             local.z = centro.z;
             if ((b.Objeto.transform.localPosition - local).sqrMagnitude > 0.0001f) b.Objeto.transform.localPosition = local;
-            if (b.Valor != null && b.Slide.Bar != null)
+            if (b.Slide.Bar != null)
             {
                 Vector3 barra = conteudo.InverseTransformPoint(b.Slide.Bar.bounds.center);
-                Vector3 alvoTexto = conteudo.TransformPoint(new Vector3(barra.x, yBarra - passoY * 0.65f, barra.z));
-                if ((b.Valor.transform.position - alvoTexto).sqrMagnitude > 0.00001f) b.Valor.transform.position = alvoTexto;
+                void Texto(TextMeshPro t, float y)
+                {
+                    if (t == null) return;
+                    Vector3 alvo = conteudo.TransformPoint(new Vector3(barra.x, y, barra.z));
+                    if ((t.transform.position - alvo).sqrMagnitude > 0.00001f) t.transform.position = alvo;
+                }
+                Texto(b.Titulo, yBarra + passoY * 0.7f);
+                Texto(b.Valor, yBarra - passoY * 0.7f);
             }
         }
 

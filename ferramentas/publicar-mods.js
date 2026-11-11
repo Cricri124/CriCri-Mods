@@ -34,9 +34,27 @@ const CHAVE = opcao('--chave', path.join(PASTA_CHAVES, 'catalogo-mods-privada.pe
 const PUBLICA = path.join(path.dirname(CHAVE), 'catalogo-mods-publica.txt');
 const ORIGEM = opcao('--origem', path.join(REPO, 'fusionApp/src/main/assets/mods'));
 const SAIDA = opcao('--saida', path.join(require('os').homedir(), 'CriCri-Mods-publicar', 'mods'));
+// a test build (fake friends, test server, test news) must never be signed: mods-de-teste.js leaves this mark while one is in the assets
+const MARCA_TESTE = path.join(REPO, 'fusionApp/build/mods-de-teste.txt');
+const PROIBIDO_NAS_DLLS = ['CriarMentira', '22034', 'Notícia de teste'];
 const NOME_SEGURO = /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/;
 
 function falhar(msg) { console.error('ERRO: ' + msg); process.exit(1); }
+
+// the password is typed here on every use and is never written anywhere
+function pedirSenha(texto) {
+  const script = "$s=Read-Host '" + texto + "' -AsSecureString; [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))";
+  return require('child_process').execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: ['inherit', 'pipe', 'inherit'], encoding: 'utf8' }).replace(/\r?\n$/, '');
+}
+
+function chavePrivada() {
+  const pem = fs.readFileSync(CHAVE, 'utf8');
+  if (!pem.includes('ENCRYPTED')) {
+    console.warn('AVISO: a chave do catalogo esta sem senha. Proteja com: node ferramentas/publicar-mods.js --cifrar-chave');
+    return crypto.createPrivateKey(pem);
+  }
+  return crypto.createPrivateKey({ key: pem, passphrase: pedirSenha('Senha da chave do catalogo') });
+}
 const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
 
 if (args.includes('--nova-chave')) {
@@ -52,7 +70,23 @@ if (args.includes('--nova-chave')) {
 }
 
 if (!fs.existsSync(CHAVE)) falhar('nao achei a chave privada em ' + CHAVE);
+
+// writes a protected copy and leaves the original for the person to delete after checking it: losing this key means a new APK for everyone
+if (args.includes('--cifrar-chave')) {
+  const saida = CHAVE + '.cifrada';
+  if (fs.existsSync(saida)) falhar('ja existe ' + saida);
+  const a = pedirSenha('Senha nova da chave'), b = pedirSenha('Repita a senha');
+  if (a !== b || a.length < 12) falhar('as senhas nao batem ou tem menos de 12 caracteres');
+  const chave = crypto.createPrivateKey(fs.readFileSync(CHAVE, 'utf8'));
+  fs.writeFileSync(saida, chave.export({ type: 'pkcs8', format: 'pem', cipher: 'aes-256-cbc', passphrase: a }), { mode: 0o600 });
+  const conferida = crypto.createPrivateKey({ key: fs.readFileSync(saida, 'utf8'), passphrase: a });
+  const m = Buffer.from('teste');
+  if (!crypto.verify('sha256', m, crypto.createPublicKey(conferida), crypto.sign('sha256', m, chave))) falhar('a copia nao confere');
+  console.log('Copia protegida em ' + saida + '. Guarde a senha e, depois de publicar uma vez com ela, troque o arquivo e apague o sem senha.');
+  process.exit(0);
+}
 const origem = JSON.parse(fs.readFileSync(path.join(ORIGEM, 'mods.json'), 'utf8'));
+if (fs.existsSync(MARCA_TESTE) && fs.readFileSync(MARCA_TESTE, 'utf8').trim() !== 'oficial') falhar('os mods do app sao de teste: rode "node ferramentas/mods-de-teste.js oficial" antes de publicar');
 fs.mkdirSync(SAIDA, { recursive: true });
 
 // the number only goes up: one more than the last catalog written here
@@ -67,6 +101,8 @@ for (const m of origem.mods) {
   if (retirar.has(m.id)) { mods.push({ id: m.id, file: m.file, retirado: true }); retirar.delete(m.id); continue; }
   if (!NOME_SEGURO.test(m.file) || !m.file.endsWith('.dll')) falhar('nome de arquivo invalido: ' + m.file);
   const dll = fs.readFileSync(path.join(ORIGEM, m.file));
+  for (const p of PROIBIDO_NAS_DLLS)
+    if ([dll.toString('latin1'), dll.toString('utf16le'), dll.subarray(1).toString('utf16le')].some((t) => t.includes(p))) falhar(m.file + ' e uma versao de teste (tem "' + p + '"): rode "node ferramentas/mods-de-teste.js oficial"');
   const hash = sha256(dll);
   if (m.sha256 && m.sha256.toLowerCase() !== hash) falhar(m.file + ': sha256 ' + hash + ' nao bate com o mods.json (' + m.sha256 + ')');
   const url = m.file.replace(/\.dll$/, '') + '-' + m.version + '.dll';
@@ -81,9 +117,25 @@ for (const m of origem.mods) {
 }
 for (const id of retirar) mods.push({ id, retirado: true });
 
-const catalogo = { formato: 1, numero, emitido: new Date().toISOString(), mods };
+// News for everyone using the launcher: signed together with the catalog, so nobody else can post them.
+// File next to the output folder: [{ "numero": 1, "titulo": "...", "subtitulo": "...", "data": "2026-11-09", "texto": "..." }]
+const ARQUIVO_NOTICIAS = path.join(path.dirname(SAIDA), 'noticias.json');
+let noticias = [];
+if (fs.existsSync(ARQUIVO_NOTICIAS)) {
+  noticias = JSON.parse(fs.readFileSync(ARQUIVO_NOTICIAS, 'utf8'));
+  if (!Array.isArray(noticias) || noticias.length > 20) falhar('noticias.json: lista de ate 20 noticias');
+  const vistos = new Set();
+  for (const n of noticias) {
+    if (!Number.isInteger(n.numero) || n.numero < 1 || vistos.has(n.numero)) falhar('noticias.json: numero invalido ou repetido');
+    vistos.add(n.numero);
+    for (const c of ['titulo', 'data', 'texto']) if (typeof n[c] !== 'string' || !n[c]) falhar('noticias.json: falta ' + c + ' na ' + n.numero);
+    if (n.titulo.length > 60 || n.texto.length > 4000) falhar('noticias.json: texto grande demais na ' + n.numero);
+  }
+}
+
+const catalogo = { formato: 1, numero, emitido: new Date().toISOString(), mods, noticias };
 const json = Buffer.from(JSON.stringify(catalogo, null, 2) + '\n', 'utf8');
-const privada = crypto.createPrivateKey(fs.readFileSync(CHAVE));
+const privada = chavePrivada();
 const assinatura = crypto.sign('sha256', json, privada);   // DER, what Java's SHA256withECDSA reads
 
 // check with the public half that goes in the APK, before writing anything final

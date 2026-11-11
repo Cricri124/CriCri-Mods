@@ -1,0 +1,47 @@
+CRICRI BR no PC - versão {VERSAO}
+
+O QUE É
+  Coloca a região CriCri BR (servidor em São Paulo) na lista de servidores do Among Us e
+  um botão CONTA BR no menu principal, para guardar a chave da sua conta do CRICRI BR.
+  As regiões oficiais continuam lá. Não tem trapaça: nada mostra impostor nem mexe na partida dos outros.
+
+O QUE PRECISA
+  Windows de 64 bits e o Among Us da Steam, versão de 64 bits. Epic, Xbox e Microsoft Store não foram testadas.
+
+COMO INSTALAR
+  1. Feche o Among Us.
+  2. Extraia o zip INTEIRO numa pasta qualquer (botão direito no zip > Extrair tudo).
+  3. Dois cliques em INSTALAR-CRICRI-BR.cmd. Se o Windows perguntar, clique em Mais informações > Executar assim mesmo.
+  4. Abra o jogo pela Steam. A primeira abertura demora alguns minutos e mostra uma janela preta de texto.
+     O BepInEx prepara o mod para o seu jogo e baixa as bibliotecas da Unity de unity.bepinex.dev. Isso só acontece uma vez.
+
+O QUE O INSTALADOR FAZ
+  Não pede administrador, não baixa nada e só mexe na pasta do jogo nestes itens:
+  BepInEx, dotnet, winhttp.dll, doorstop_config.ini e .doorstop_version.
+  - Pasta sem mods: coloca o BepInEx {BEPINEX} (64 bits) e o mod.
+  - Já tem BepInEx 6 (outro mod seu): coloca só o CriCriServidor.dll, junto dos outros.
+  - Tem outro carregador, ou um BepInEx que não combina com o jogo: não instala e não muda nada.
+  Ele não apaga, não troca e não move mod de ninguém, e não mexe nos arquivos do próprio Among Us.
+
+SUA CONTA DO CRICRI BR (opcional)
+  1. Em cricribr.com.br, em Minha conta, gere a chave do mod e copie.
+  2. No jogo, clique em CONTA BR no menu principal e depois em COLAR.
+  A chave fica guardada neste PC e só este usuário do Windows consegue abrir o arquivo. Ela nunca aparece na tela.
+  Depois de colar, o que você copiou é limpo, para não ir parar no chat por engano.
+  Fica em %LOCALAPPDATA%\CriCri Mods\chave-cricri-br.dpapi, fora da pasta do jogo.
+
+DESINSTALAR
+  Feche o jogo e dê dois cliques em DESINSTALAR-CRICRI-BR.cmd (nesta pasta).
+  Sem outros mods, ele tira o mod e o BepInEx e o jogo volta ao normal.
+  Com outros mods, ele tira só o CriCriServidor.dll e o BepInEx fica.
+  Ele pergunta antes se é para apagar também a chave da sua conta.
+  O que foi instalado fica anotado em BepInEx\CriCriBR-instalacao.txt, na pasta do jogo.
+
+QUANDO O AMONG US ATUALIZA
+  O mod pode parar até sair uma versão nova. Para jogar sem mod nenhum, desinstale. Verificar a integridade dos arquivos na Steam não tira o BepInEx.
+
+AVISOS
+  Mods são feitos por fãs; use por sua conta.
+  BepInEx, UnityDoorstop e o .NET Runtime pertencem aos seus autores e têm licenças próprias.
+  Este mod não é afiliado ao Among Us nem à Innersloth LLC, e o conteúdo não é endossado nem patrocinado pela
+  Innersloth LLC. Partes do material são propriedade da Innersloth LLC. © Innersloth LLC.

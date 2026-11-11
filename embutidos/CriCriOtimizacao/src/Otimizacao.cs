@@ -68,6 +68,7 @@ namespace CriCriMods
             {
                 _proxJogadores = agora + 0.5f;
                 Tentar("jogadores", Jogadores);
+                Tentar("noticias", Noticias.Tique);
             }
             if (agora >= _proxAba)
             {

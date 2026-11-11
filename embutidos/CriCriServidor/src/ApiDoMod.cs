@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace CriCriMods.Servidor
@@ -35,7 +37,7 @@ namespace CriCriMods.Servidor
             if (http == null || SalaApi.Esperando) return r;
             try
             {
-                using var pedido = new HttpRequestMessage(HttpMethod.Get, "https://cricribr.com.br" + caminho);
+                using var pedido = new HttpRequestMessage(HttpMethod.Get, SalaApi.Site + caminho);
                 if (!string.IsNullOrEmpty(etag)) pedido.Headers.TryAddWithoutValidation("If-None-Match", etag);
                 using var resposta = http.SendAsync(pedido, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
                 r[0] = ((int)resposta.StatusCode).ToString();
@@ -65,6 +67,46 @@ namespace CriCriMods.Servidor
                 if (arquivo != null) { try { if (File.Exists(arquivo)) File.Delete(arquivo); } catch { } }
                 return new string[] { "0", null, null, null };
             }
+        }
+
+        static readonly Regex CaminhoComBusca = new Regex("^/api/mod/[A-Za-z0-9_\\-./]{1,200}(\\?[A-Za-z0-9_\\-.~%=&+]{0,300})?$", RegexOptions.CultureInvariant);
+        const string SoOficina = "/api/mod/oficina/";
+
+        /// <summary>
+        /// For the Oficina's community screen: GET, POST or DELETE on /api/mod/*, query string allowed. POST and DELETE only reach the
+        /// Oficina routes, so no other plugin can write anywhere else with the account's key. Returns {status, etag, retryAfterSeconds, text},
+        /// with the body also on error answers (the server explains a refusal there). BLOCKING: off the game's main thread.
+        /// </summary>
+        public static string[] Pedir(string metodo, string caminho, byte[] corpo, string etag, long maxBytes)
+        {
+            var r = new string[] { "0", null, null, null };
+            if (caminho == null || caminho.Contains("..") || !CaminhoComBusca.IsMatch(caminho)) return r;
+            if (metodo != "GET" && metodo != "POST" && metodo != "DELETE") return r;
+            if (metodo != "GET" && !caminho.StartsWith(SoOficina, StringComparison.Ordinal)) return r;
+            var http = SalaApi.ClienteSeTiver();
+            if (http == null) return r;
+            if (SalaApi.Esperando) { r[0] = "429"; return r; }
+            try
+            {
+                using var pedido = new HttpRequestMessage(new HttpMethod(metodo), SalaApi.Site + caminho);
+                if (!string.IsNullOrEmpty(etag)) pedido.Headers.TryAddWithoutValidation("If-None-Match", etag);
+                if (corpo != null) { pedido.Content = new ByteArrayContent(corpo); pedido.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json"); }
+                using var resposta = http.SendAsync(pedido, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
+                r[0] = ((int)resposta.StatusCode).ToString();
+                r[1] = resposta.Headers.ETag?.ToString();
+                SalaApi.EsperarSePedir(resposta);
+                var depois = resposta.Headers.RetryAfter?.Delta;
+                if (depois != null) r[2] = ((int)depois.Value.TotalSeconds).ToString();
+                if (resposta.StatusCode == HttpStatusCode.NoContent || resposta.StatusCode == HttpStatusCode.NotModified) return r;
+                long declarado = resposta.Content.Headers.ContentLength ?? -1;
+                if (maxBytes > 0 && declarado > maxBytes) { r[0] = "413"; return r; }
+                using var leitor = resposta.Content.ReadAsStream();
+                using var mem = new MemoryStream();
+                if (!Copiar(leitor, mem, maxBytes)) { r[0] = "413"; return r; }
+                r[3] = Encoding.UTF8.GetString(mem.GetBuffer(), 0, (int)mem.Length);
+                return r;
+            }
+            catch { return new string[] { "0", null, null, null }; }
         }
 
         // Copies at most max bytes (counted on what arrives, not on what the server declared). false = it went past max.

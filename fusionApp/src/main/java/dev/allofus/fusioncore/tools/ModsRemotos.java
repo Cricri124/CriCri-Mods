@@ -83,11 +83,14 @@ public final class ModsRemotos {
         public final int numero;
         public final String emitido;
         public final List<JSONObject> mods;
+        /** News for everyone using the launcher, signed together with the catalog (null when there are none). */
+        public final JSONArray noticias;
 
-        Catalogo(int numero, String emitido, List<JSONObject> mods) {
+        Catalogo(int numero, String emitido, List<JSONObject> mods, JSONArray noticias) {
             this.numero = numero;
             this.emitido = emitido;
             this.mods = mods;
+            this.noticias = noticias;
         }
     }
 
@@ -142,7 +145,7 @@ public final class ModsRemotos {
                 m.getString("name");
                 mods.add(m);
             }
-            return new Catalogo(numero, raiz.optString("emitido", ""), mods);
+            return new Catalogo(numero, raiz.optString("emitido", ""), mods, raiz.optJSONArray("noticias"));
         } catch (Recusado r) {
             throw r;
         } catch (Exception e) {

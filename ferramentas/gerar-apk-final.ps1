@@ -32,6 +32,10 @@ if ($Codigo -notmatch '^https://') {
 if (-not (Test-Path -LiteralPath $Chave)) { throw "nao achei a chave $Chave (rode ferramentas\criar-chave.ps1 antes)" }
 $sujo = & git -C $raiz status --porcelain
 if ($sujo) { throw "o repositorio tem mudancas sem commit: o codigo publicado nao seria o deste APK. Faca o commit e o push antes." }
+$marca = Join-Path $raiz "fusionApp\build\mods-de-teste.txt"
+if ((Test-Path -LiteralPath $marca) -and ((Get-Content -LiteralPath $marca -TotalCount 1).Trim() -ne "oficial")) {
+  throw "os mods do app sao de teste: rode 'node ferramentas/mods-de-teste.js oficial' ou 'volta' antes de gerar o APK final."
+}
 
 $segura = Read-Host "Senha da chave" -AsSecureString
 $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($segura)

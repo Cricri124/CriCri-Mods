@@ -1,5 +1,6 @@
 // Copyright (c) 2026 XtraCube
 #include <unistd.h>
+#include <fcntl.h>
 #include <jni.h>
 #include <filesystem>
 #include <logger.h>
@@ -121,6 +122,27 @@ int il2cpp_init_hook(char *domain_name)
         dotNetConfig.entryPointType = "BepInEx.Unity.IL2CPP.FusionCoreEntrypoint";
         dotNetConfig.entryPointMethod = "Start";
         dotNetConfig.IsMono = runtime_config.isIl2Cpp2Mono;
+        // CriCri Mods: something in the managed side closes a file descriptor twice, sometimes while the game opens. On Android that is a
+        // fatal "fdsan" abort (phone logs 08/11: in UnityMain and, with the number reused, in RenderThread). Warn once instead of killing the
+        // game; the first warning still goes to logcat so the culprit can be found. Looked up by name: the function needs Android 10.
+        using FdsanSetLevel = int (*)(int);
+        if (auto setLevel = reinterpret_cast<FdsanSetLevel>(dlsym(RTLD_DEFAULT, "android_fdsan_set_error_level"))) setLevel(1 /* WARN_ONCE */);
+
+        // CriCri Mods: an unhandled .NET exception ends the process with only "Aborting process." in the crash report (09/11); its text
+        // goes to stderr, and Android throws stderr away. Keep it in a file, and keep the file of the last launch that wrote something.
+        {
+            fs::path erros = fs::path(runtime_config.appDataDirectory) / "dotnet-erro.txt";
+            std::error_code erroDoArquivo;
+            auto tamanho = fs::file_size(erros, erroDoArquivo);
+            if (!erroDoArquivo && tamanho > 0) fs::rename(erros, fs::path(erros.string() + ".anterior"), erroDoArquivo);
+            int arquivo = open(erros.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+            if (arquivo >= 0)
+            {
+                dup2(arquivo, STDERR_FILENO);
+                close(arquivo);
+            }
+        }
+
         // set TMPDIR for MonoMod lib drops
         setenv("TMPDIR", runtime_config.codeCacheDirectory.c_str(), 1);
         // CriCri Mods: MonoMod.Core drops its native helper in $XDG_CACHE_HOME or $HOME/.cache. In an app

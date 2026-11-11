@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods (Android 11 and older): the same list as backup_regras.xml. -->
+<full-backup-content>
+    <include domain="external" path="com.innersloth.spacemafia/PersistentData/settings.amogus" />
+    <include domain="external" path="com.innersloth.spacemafia/PersistentData/player.amogus" />
+    <include domain="external" path="com.innersloth.spacemafia/PersistentData/regionInfo.json" />
+    <include domain="external" path="com.innersloth.spacemafia/BepInEx/config" />
+    <include domain="sharedpref" path="com.innersloth.spacemafia.v2.playerprefs.xml" />
+    <include domain="sharedpref" path="cricri_mods.xml" />
+    <include domain="sharedpref" path="cricri_otimizacoes.xml" />
+    <include domain="sharedpref" path="cricri_guia.xml" />
+    <include domain="sharedpref" path="cricri_atalho.xml" />
+    <include domain="sharedpref" path="cricri_entrada_rapida.xml" />
+</full-backup-content>

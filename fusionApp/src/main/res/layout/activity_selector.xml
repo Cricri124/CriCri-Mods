@@ -220,6 +220,18 @@
                         android:paddingTop="2dp"
                         android:textColor="?android:attr/textColorSecondary"
                         android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/chave_br_colar_link"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="center_vertical"
+                        android:minHeight="48dp"
+                        android:text="@string/chave_br_outro_jeito"
+                        android:textColor="?attr/colorPrimary"
+                        android:textSize="14sp"
+                        android:visibility="gone" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton

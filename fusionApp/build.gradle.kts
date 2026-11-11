@@ -50,8 +50,8 @@ android {
         targetSdk = 36
         // CriCri Mods: the Play Store package id is permanent once published.
         applicationId = "br.com.cricribr.mods"
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.3.0"
         // Google Play forbids downloading executable code at run time (Device and Network Abuse policy), so a Play
         // build never fetches the unstripped libunity and the Unity base libraries. The CriCri chose (08/11/2026) the
         // site only, no Play Store: gerar-apk-final.ps1 builds with -PcricriPermitirDownloads=true (the CriCri
@@ -64,6 +64,8 @@ android {
         buildConfigField("String", "SOURCE_URL", "\"${project.findProperty("cricriSourceUrl") ?: ""}\"")
         // Mods updated from the site without a new APK (ModsRemotos): the signed catalog and the DLLs live here,
         // served as plain files by the CRICRI BR server. https only; "" turns the check off.
+        // The CRICRI BR site, for "Conectar conta" (ConectarBr). The test server build passes -PcricriSiteUrl=https://cricribr.com.br:22034
+        buildConfigField("String", "SITE_URL", "\"${project.findProperty("cricriSiteUrl") ?: "https://cricribr.com.br"}\"")
         buildConfigField("String", "MODS_URL", "\"${project.findProperty("cricriModsUrl") ?: "https://cricribr.com.br/mods/"}\"")
         ndk {
             abiFilters.add("arm64-v8a")

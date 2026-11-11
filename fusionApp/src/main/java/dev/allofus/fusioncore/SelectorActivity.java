@@ -110,7 +110,12 @@ public class SelectorActivity extends AppCompatActivity {
         ModsRemotos.verificar(this, false, () -> {
             if (!isFinishing()) refresh();
         });
-        if (!lancandoAgora && !Guia.jaVisto(this)) {
+        java.io.File erro = lancandoAgora ? null : dev.allofus.fusioncore.tools.RelatorioDeErro.novo(this);
+        if (erro != null) {
+            findViewById(R.id.selector_root).postDelayed(() -> {
+                if (!isFinishing() && getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) oferecerRelatorio(erro);
+            }, 450);
+        } else if (!lancandoAgora && !Guia.jaVisto(this)) {
             findViewById(R.id.selector_root).postDelayed(() -> {
                 if (!isFinishing() && getLifecycle().getCurrentState().isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) mostrarGuia();
             }, 450);
@@ -121,6 +126,31 @@ public class SelectorActivity extends AppCompatActivity {
             }, 600);
         }
         lancandoAgora = false;
+    }
+
+    // CriCri Mods (11/11): the app or the game closed by itself last time. The player chooses to share or copy the report; nothing is sent by us.
+    private void oferecerRelatorio(java.io.File erro) {
+        dev.allofus.fusioncore.tools.RelatorioDeErro.marcarVisto(this, erro);
+        String texto = dev.allofus.fusioncore.tools.RelatorioDeErro.montar(this, erro);
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.relatorio_titulo)
+                .setMessage(R.string.relatorio_texto)
+                .setPositiveButton(R.string.relatorio_mandar, (d, w) -> {
+                    Intent enviar = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_SUBJECT, getString(R.string.relatorio_assunto))
+                            .putExtra(Intent.EXTRA_TEXT, texto);
+                    try { startActivity(Intent.createChooser(enviar, getString(R.string.relatorio_mandar))); }
+                    catch (Exception e) { copiarRelatorio(texto); }
+                })
+                .setNeutralButton(R.string.relatorio_copiar, (d, w) -> copiarRelatorio(texto))
+                .setNegativeButton(R.string.relatorio_agora_nao, null)
+                .show();
+    }
+
+    private void copiarRelatorio(String texto) {
+        android.content.ClipboardManager cm = getSystemService(android.content.ClipboardManager.class);
+        if (cm != null) cm.setPrimaryClip(android.content.ClipData.newPlainText(getString(R.string.relatorio_assunto), texto));
+        android.widget.Toast.makeText(this, R.string.relatorio_copiado, android.widget.Toast.LENGTH_SHORT).show();
     }
 
     // First-run guide over the four parts of this screen (also from "Como usar" at the bottom).
@@ -290,16 +320,96 @@ public class SelectorActivity extends AppCompatActivity {
         boolean tem = ChaveBr.temChave(this);
         ((TextView) findViewById(R.id.chave_br_status)).setText(tem ? R.string.chave_br_ligada : R.string.chave_br_sem);
         MaterialButton botao = findViewById(R.id.chave_br_botao);
-        botao.setText(tem ? R.string.chave_br_apagar : R.string.chave_br_colar);
+        String aguardando = tem ? null : dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento();
+        // The account links by itself in the first CRICRI BR lobby; the button exists only for what is already there.
+        botao.setVisibility(tem || aguardando != null ? View.VISIBLE : View.GONE);
+        botao.setText(tem ? R.string.chave_br_apagar : R.string.chave_br_abrir_de_novo);
+        TextView outroJeito = findViewById(R.id.chave_br_colar_link);
+        outroJeito.setVisibility(tem ? View.GONE : View.VISIBLE);
+        outroJeito.setOnClickListener(v -> outrasFormasChaveBr());
         botao.setOnClickListener(v -> {
             if (ChaveBr.temChave(this)) {
                 ChaveBr.apagar(this);
                 Toast.makeText(this, R.string.chave_br_apagada, Toast.LENGTH_SHORT).show();
-            } else {
-                colarChaveBr();
+            } else if (dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento() != null) {
+                abrirNoNavegador(dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento());
             }
             populateChaveBr();
         });
+    }
+
+    // Only if linking in the lobby did not work: the site and the key by hand.
+    private void outrasFormasChaveBr() {
+        CharSequence[] formas = {
+                getString(R.string.chave_br_conectar_site),
+                getString(R.string.chave_br_colar_manual),
+                getString(R.string.chave_como_titulo),
+        };
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.chave_br_outro_jeito)
+                .setItems(formas, (d, qual) -> {
+                    if (qual == 0) conectarBr();
+                    else if (qual == 1) colarChaveBr();
+                    else comoPegarChaveBr();
+                    populateChaveBr();
+                })
+                .setNegativeButton(R.string.conta_fechar, null)
+                .show();
+    }
+
+    // One tap: the site confirms in this phone's browser and the key arrives by itself. Pasting by hand stays as the fallback.
+    private void conectarBr() {
+        View botao = findViewById(R.id.chave_br_botao);
+        botao.setEnabled(false);   // two quick taps would open the site twice
+        Toast.makeText(this, R.string.chave_br_abrindo, Toast.LENGTH_LONG).show();
+        dev.allofus.fusioncore.tools.ConectarBr.comecar(this, url -> {
+            abrirNoNavegador(url);
+            botao.setEnabled(true);
+            if (!isDestroyed()) populateChaveBr();
+        }, como -> {
+            botao.setEnabled(true);
+            if (isDestroyed()) return;
+            populateChaveBr();
+            switch (como) {
+                case dev.allofus.fusioncore.tools.ConectarBr.CONECTADA:
+                    Toast.makeText(this, R.string.chave_br_conectada, Toast.LENGTH_SHORT).show();
+                    populateChaveBr();
+                    break;
+                case dev.allofus.fusioncore.tools.ConectarBr.RECUSADA:
+                    Toast.makeText(this, R.string.chave_br_recusada, Toast.LENGTH_LONG).show();
+                    break;
+                case dev.allofus.fusioncore.tools.ConectarBr.VENCEU:
+                    Toast.makeText(this, R.string.chave_br_venceu, Toast.LENGTH_LONG).show();
+                    break;
+                default:
+                    Toast.makeText(this, R.string.chave_br_sem_servidor, Toast.LENGTH_LONG).show();
+                    comoPegarChaveBr();
+                    break;
+            }
+        });
+    }
+
+    private void abrirNoNavegador(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, R.string.chave_sem_navegador, Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void comoPegarChaveBr() {
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.chave_como_titulo)
+                .setView(R.layout.dialog_chave_como)
+                .setPositiveButton(R.string.chave_abrir_site, (d, w) -> {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://cricribr.com.br/conta")));
+                    } catch (ActivityNotFoundException e) {
+                        Toast.makeText(this, R.string.chave_sem_navegador, Toast.LENGTH_LONG).show();
+                    }
+                })
+                .setNegativeButton(R.string.conta_fechar, null)
+                .show();
     }
 
     // the clipboard is read only on this tap
@@ -310,10 +420,12 @@ public class SelectorActivity extends AppCompatActivity {
         String chave = ChaveBr.limpar(texto);
         if (chave == null) {
             Toast.makeText(this, R.string.chave_br_invalida, Toast.LENGTH_LONG).show();
+            comoPegarChaveBr();
             return;
         }
         try {
             ChaveBr.salvar(this, chave);
+            if (clipboard != null && android.os.Build.VERSION.SDK_INT >= 28) clipboard.clearPrimaryClip();   // the key does not stay around for other apps
             Toast.makeText(this, R.string.chave_br_colada, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Log.w(TAG, "nao guardei a chave do CRICRI BR: " + e.getClass().getSimpleName());
@@ -460,6 +572,24 @@ public class SelectorActivity extends AppCompatActivity {
             row.setOnClickListener(v -> abrirDetalhes(mod, gameVersion, toggle));
             list.addView(row);
         }
+        emBreve(list, inflater);
+    }
+
+    // CriCri, 11/11: "eu nao quero liberar nada da oficina ainda, é pra ficar em breve ela". Only a card: no switch, no download, nothing of
+    // the Oficina inside the app.
+    private void emBreve(LinearLayout list, LayoutInflater inflater) {
+        View row = inflater.inflate(R.layout.item_mod, list, false);
+        ((ImageView) row.findViewById(R.id.mod_icone)).setImageResource(R.drawable.ic_mod_padrao);
+        ((TextView) row.findViewById(R.id.mod_name)).setText(R.string.oficina_nome);
+        ((TextView) row.findViewById(R.id.mod_autor)).setText(R.string.oficina_autor);
+        ((TextView) row.findViewById(R.id.mod_description)).setText(R.string.oficina_descricao);
+        row.findViewById(R.id.mod_switch).setVisibility(View.GONE);
+        TextView selo = row.findViewById(R.id.mod_sempre);
+        selo.setText(R.string.oficina_em_breve);
+        selo.setVisibility(View.VISIBLE);
+        row.setAlpha(0.6f);
+        row.setContentDescription(getString(R.string.oficina_nome) + ", " + getString(R.string.oficina_em_breve));
+        list.addView(row);
     }
 
     // The icons drawn for each mod (res/drawable/ic_mod_*). A switch instead of getIdentifier: the resource

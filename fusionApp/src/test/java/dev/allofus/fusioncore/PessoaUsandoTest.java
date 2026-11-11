@@ -257,7 +257,20 @@ public class PessoaUsandoTest {
 
     /** Sharing the error page (Google account that never played) explains what is missing. */
     @Test
+    public void loginQueNinguemPediu_eRecusado() {
+        Intent compartilhado = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_TEXT, "https://accounts.innersloth.com/?store=google&token=a.b.c");
+        Robolectric.buildActivity(ContaActivity.class, compartilhado).setup();
+        esperar(100);
+        Dialog erro = ShadowDialog.getLatestDialog();
+        assertNotNull(erro);
+        assertTrue(temTexto(erro.getWindow().getDecorView(), "toque em Entrar"));
+        assertNull(Conta.carregar(ctx));
+    }
+
+    @Test
     public void paginaDeErro_explicaQueAContaNaoTemAmongUs() {
+        ctx.getSharedPreferences("cricri_login_pedido", android.content.Context.MODE_PRIVATE).edit().putLong("em", System.currentTimeMillis()).commit();
         Intent compartilhado = new Intent(Intent.ACTION_SEND).setType("text/plain")
                 .putExtra(Intent.EXTRA_TEXT, "https://accounts.innersloth.com/merge-error");
         Robolectric.buildActivity(ContaActivity.class, compartilhado).setup();
@@ -333,7 +346,7 @@ public class PessoaUsandoTest {
         assertTrue(lista.getChildCount() >= 4);
         View replay = lista.getChildAt(0);
         assertEquals("CriCri Replay", ((TextView) replay.findViewById(R.id.mod_name)).getText().toString());
-        assertEquals("CriCri · v1.7.3", ((TextView) replay.findViewById(R.id.mod_autor)).getText().toString());
+        assertEquals("CriCri · v1.8.0", ((TextView) replay.findViewById(R.id.mod_autor)).getText().toString());
         linha(lista, "Servidor CRICRI BR");
         // the ones that are part of the app: no switch, "Sempre ligado"
         View otimizacao = linha(lista, "Otimização");
@@ -346,7 +359,7 @@ public class PessoaUsandoTest {
         Dialog folha = tela.ultimaFolha;
         assertNotNull(folha);
         assertTrue(folha.isShowing());
-        assertEquals("por CriCri · versão 1.7.3", ((TextView) folha.findViewById(R.id.sheet_autor)).getText().toString());
+        assertEquals("por CriCri · versão 1.8.0", ((TextView) folha.findViewById(R.id.sheet_autor)).getText().toString());
         assertTrue(((LinearLayout) folha.findViewById(R.id.sheet_itens)).getChildCount() >= 3);
         assertTrue(temTexto(folha.getWindow().getDecorView(), "Replays"));
         assertTrue(temTexto(folha.getWindow().getDecorView(), "Conferido no Among Us 2026.11.3"));

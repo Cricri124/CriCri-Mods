@@ -156,6 +156,12 @@ public class BootstrapActivity extends AppCompatActivity {
         }
 
         final int targetOrientation = resolveTargetOrientation(launcherComponent);
+        // CriCri Mods (11/11, CriCri: "essa tela de carregamento também vira de cabeça pra baixo do nada"): the loading screen was
+        // "locked" to whatever side the phone had when it opened, and the game then picked its own landscape side, so the picture
+        // turned 180° at the switch. The loading screen now follows the same orientation rule as the game.
+        runOnUiThread(() -> {
+            try { setRequestedOrientation(targetOrientation); } catch (Exception ignored) {}
+        });
 
         boolean useOriginalLibUnity = getIntent().getBooleanExtra(EXTRA_USE_ORIGINAL_LIBUNITY, false);
         boolean useIl2Cpp2Mono = getIntent().getBooleanExtra(EXTRA_USE_IL2CPP2MONO, false);
@@ -511,7 +517,10 @@ public class BootstrapActivity extends AppCompatActivity {
                 }
             }
             setPhaseStatus(getString(R.string.bootstrap_status_installing_mods));
-            ModsManager.install(appContext, bepInExDir);
+            java.util.Set<String> oficiais = ModsManager.install(appContext, bepInExDir);
+            if (!dev.allofus.fusioncore.tools.Integridade.conferir(appContext, bepInExDir, oficiais, targetPackage)) {
+                throw new IllegalStateException("Arquivos nao oficiais na pasta de mods que nao deu para remover");
+            }
             Otimizacoes.prepararJogo(appContext, getWindowManager().getDefaultDisplay(), bepInExDir);
             Conta.prepararJogo(appContext);
             dev.allofus.fusioncore.tools.ChaveBr.prepararJogo(appContext);

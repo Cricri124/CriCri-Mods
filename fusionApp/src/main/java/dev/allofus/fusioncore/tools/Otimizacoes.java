@@ -40,6 +40,7 @@ public final class Otimizacoes {
     private static final String PREFS_NAME = "cricri_otimizacoes";
     public static final String CONFIG_FILE = "cricri-mods-otimizacoes.json";
     public static final String TELA_FILE = "cricri-mods-tela.json";
+    public static final String NOTICIAS_FILE = "cricri-mods-noticias.json";
     private static final int[] FPS_POSSIVEIS = {60, 90, 120};
 
     private Otimizacoes() {
@@ -79,6 +80,12 @@ public final class Otimizacoes {
             Log.e(TAG, "Failed to write " + TELA_FILE, e);
         }
         migrarEscolhasDoApp(context, new File(configDir, CONFIG_FILE));
+        try {
+            ModsRemotos.Catalogo site = ModsRemotos.atual(context);
+            escrever(new File(configDir, NOTICIAS_FILE), site != null && site.noticias != null ? site.noticias.toString() : "[]");
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to write " + NOTICIAS_FILE, e);
+        }
     }
 
     // The app's old menu kept FPS/resolution in its preferences; bring them into the game's file once.
