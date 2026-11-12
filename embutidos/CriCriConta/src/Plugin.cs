@@ -18,11 +18,15 @@ namespace CriCriMods.Conta
     public sealed class Plugin : BasePlugin
     {
         public const string Id = "br.com.cricribr.conta";
-        public const string Versao = "0.2.0";
+        public const string Versao = "0.2.1";
         internal static ManualLogSource Registro;
 
         public override void Load()
         {
+            // (11/11, ele: "tão falando que demora muito pra carregar") O tempo deste Load vai para o registro, com a parte dos
+            // ganchos separada: são dez ganchos do Harmony, a parte mais cara daqui. Com o LogOutput.log de um celular lento na
+            // mão dá para saber quanto da demora é deste mod, sem adivinhar.
+            var relogio = System.Diagnostics.Stopwatch.StartNew();
             Registro = Log;
             // the account's outfit keeper (Roupa.cs): a per-frame object that survives scene changes
             Il2CppInterop.Runtime.Injection.ClassInjector.RegisterTypeInIl2Cpp<Roupa>();
@@ -34,8 +38,11 @@ namespace CriCriMods.Conta
             Log.LogInfo("CriCri Mods conta " + Versao + ": " + (login != null
                 ? "login do Google pronto (" + login.Descrever() + ")"
                 : "sem login do Google (" + motivo + "); o jogo segue o caminho normal"));
+            long antes = relogio.ElapsedMilliseconds;
             Ganchos.Instalar(new Harmony(Id));
             BepInEx.Logging.Logger.Listeners.Add(new OuvidoDoLogin());
+            long total = relogio.ElapsedMilliseconds;
+            Log.LogInfo("[conta] carregou em " + total + " ms (ganchos " + (total - antes) + ")");
         }
     }
 
@@ -47,6 +54,9 @@ namespace CriCriMods.Conta
 
         public void LogEvent(object sender, LogEventArgs e)
         {
+            // (11/11, otimização) Este ouvido recebe TODA linha de registro do jogo, a sessão inteira. Só interessa enquanto um login
+            // entregue espera a resposta da Epic: fora disso, sai antes de olhar o texto.
+            if (!Ganchos.EsperandoResposta) return;
             if (e?.Source == null || e.Source.SourceName != "Unity") return;
             string texto = e.Data?.ToString();
             const string marca = "Connect platform Login Callback ";
@@ -74,7 +84,11 @@ namespace CriCriMods.Conta
         public string Sub;
 
         public string ValeAte => DateTimeOffset.FromUnixTimeSeconds(Exp).ToLocalTime().ToString("HH:mm");
-        public string Descrever() => (string.IsNullOrEmpty(Nome) ? "sem nome" : Nome) + ", vale ate " + ValeAte;
+
+        // (11/11, revisão: "vulnerabilidades") Só a inicial do nome vai para o registro. O nome é o da conta do Google da pessoa
+        // (muitas vezes o nome inteiro, e boa parte dos jogadores é menor de idade), e o LogOutput.log é o arquivo que o jogador
+        // manda em grupo de WhatsApp e no Discord quando pede ajuda. O nome inteiro continua só na nota que o app lê (pasta privada).
+        public string Descrever() => (string.IsNullOrEmpty(Nome) ? "sem nome" : (char.IsLetterOrDigit(Nome[0]) ? Nome.Substring(0, 1) : "") + "***") + ", vale ate " + ValeAte;
 
         // Epic refused the token: drop it (the game then falls back to a guest, as with no login) and leave the app
         // a note with just the name and the reason, so the home screen can say why.
@@ -84,6 +98,11 @@ namespace CriCriMods.Conta
             {
                 string caminho = Caminho();
                 if (caminho == null) return;
+                // (11/11, revisão) o motivo vem de uma linha do registro do jogo: na nota do app vai só o começo dela, numa linha
+                if (motivo == null) motivo = "";
+                int corte = motivo.IndexOfAny(new[] { '\r', '\n' });
+                if (corte >= 0) motivo = motivo.Substring(0, corte);
+                if (motivo.Length > 80) motivo = motivo.Substring(0, 80);
                 string nota = JsonSerializer.Serialize(new { nome = login.Nome ?? "", motivo, quando = DateTimeOffset.UtcNow.ToUnixTimeSeconds() });
                 File.WriteAllText(Path.Combine(Path.GetDirectoryName(caminho), "cricri-conta.recusado"), nota);
                 File.Delete(caminho);
@@ -244,6 +263,41 @@ namespace CriCriMods.Conta
             return false;
         }
 
+        // For the log listener: a handed-over login is still waiting for Epic's answer.
+        internal static bool EsperandoResposta => _aguardando != null;
+
+        // (11/11, revisão: "o login que cai para convidado") Respostas da Epic que NÃO falam do login: falam da rede ou do serviço
+        // (nomes do enum Epic.OnlineServices.Result deste jogo). Antes, qualquer resposta que não fosse sucesso apagava o login
+        // guardado e deixava para o app a nota "recusado": bastava abrir o jogo com a internet ruim para perder um login bom e ter
+        // de entrar com o Google de novo. Agora, nesses casos, o mod só para de entregar ATÉ FECHAR O JOGO (o que evita a repetição
+        // sem fim do login, a mesma trava de sempre) e o login guardado fica para a próxima abertura.
+        static readonly string[] FalhasDeRede =
+        {
+            "NoConnection", "TimedOut", "NetworkDisconnected", "ServiceFailure", "TooManyRequests", "Canceled",
+            "ConnectExternalServiceUnavailable", "ApplicationSuspended", "ShutdownInvoked",
+        };
+
+        // (11/11, revisão) Respostas que NÃO são a final: a Epic ainda vai responder de verdade na linha seguinte. Tratadas como final,
+        // a resposta de verdade (até uma recusa) chegava depois e era jogada fora.
+        static readonly string[] AindaRespondendo = { "OperationWillRetry", "AlreadyPending", "RequestInProgress" };
+        // "UnexpectedError" e "UnrecognizedResponse" saíram da lista de cima: a Epic usa os dois como erro genérico, também para login
+        // ruim. Como falha de rede, a pessoa ficaria entrando como convidada, sem aviso, a cada abertura. Voltam a contar como recusa
+        // (o app avisa e pede o login de novo), que é o que acontecia antes.
+
+        static bool Esta(string[] lista, string resultado)
+        {
+            foreach (string f in lista)
+                if (resultado.StartsWith(f, StringComparison.Ordinal) && (resultado.Length == f.Length || !char.IsLetterOrDigit(resultado[f.Length]))) return true;
+            return false;
+        }
+
+        static bool FalhaDeRede(string resultado)
+        {
+            foreach (string f in FalhasDeRede)
+                if (resultado.StartsWith(f, StringComparison.Ordinal) && (resultado.Length == f.Length || !char.IsLetterOrDigit(resultado[f.Length]))) return true;
+            return false;
+        }
+
         // Epic's answer to the platform login, as the game logged it (ConnectResult name).
         public static void RespostaDoLogin(string resultado)
         {
@@ -258,6 +312,16 @@ namespace CriCriMods.Conta
             {
                 // The Google account has no Among Us account yet: the game creates one (birthday and name).
                 Log.LogInfo("[conta] login aceito; esse Google ainda nao tem conta do Among Us e o jogo vai criar uma");
+                Respondido();
+            }
+            else if (Esta(AindaRespondendo, resultado))
+            {
+                Log.LogInfo("[conta] a Epic ainda esta respondendo ao login (" + resultado + "): espero a resposta final");
+            }
+            else if (FalhaDeRede(resultado))
+            {
+                Log.LogWarning("[conta] a Epic nao respondeu ao login (" + resultado + "): falha de rede, nao do login; paro de entregar ate fechar o jogo e o login guardado fica");
+                _tokenRecusado = login.Token;
                 Respondido();
             }
             else

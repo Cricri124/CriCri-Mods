@@ -20,11 +20,15 @@ namespace CriCriMods.Servidor
     public sealed class Plugin : BasePlugin
     {
         public const string Id = "br.com.cricribr.servidor";
-        public const string Versao = "0.4.0";
+        public const string Versao = "0.4.1";
         internal static BepInEx.Logging.ManualLogSource Registro;
 
         public override void Load()
         {
+            // (11/11, ele: "tão falando que demora muito pra carregar") O tempo deste Load vai para o registro, separado em
+            // "tipos" (registrar as classes no jogo e criar o objeto) e "ganchos" (os dois do Harmony): com o LogOutput.log de um
+            // celular lento na mão dá para saber se a demora é daqui, sem adivinhar.
+            var relogio = System.Diagnostics.Stopwatch.StartNew();
             Registro = Log;
             // First of all: the account's CRICRI BR mod key leaves the process environment (other mods share it).
             SalaApi.PegarChave();
@@ -50,11 +54,14 @@ namespace CriCriMods.Servidor
             objeto.AddComponent<LigarNaVerificacao>();
 #endif
 
+            long tipos = relogio.ElapsedMilliseconds;
             var h = new HarmonyLib.Harmony(Id);
             Prender(h, typeof(GameSettingMenu), nameof(DepoisMenuDono));
             Prender(h, typeof(LobbyViewSettingsPane), nameof(DepoisMenuVer));
+            long total = relogio.ElapsedMilliseconds;
             Log.LogInfo("CriCri Mods servidor " + Versao + ": regiao " + Regiao.Nome + "; opcoes da sala "
-                + (SalaApi.TemChave ? "com a chave da conta" : "sem chave (cole no app pra ver)"));
+                + (SalaApi.TemChave ? "com a chave da conta" : "sem chave (cole no app pra ver)")
+                + "; carregou em " + total + " ms (tipos " + tipos + ", ganchos " + (total - tipos) + ")");
         }
 
         void Prender(HarmonyLib.Harmony h, Type tipo, string posfixo)
@@ -111,8 +118,12 @@ namespace CriCriMods.Servidor
                     if (regioes[i] != null && regioes[i].Name == Nome)
                     {
                         // phone 08/11: the game keeps the region it saved, so a build for another port kept talking to the old server
+                        // (11/11, revisão: "a região que some ou duplica", "vulnerabilidades") O endereço guardado também é conferido,
+                        // não só a porta: uma região salva com este NOME e a porta certa, mas apontando para outro lugar (arquivo de
+                        // regiões antigo, editado na mão ou escrito por outro programa), era aceita como boa, e o jogo mandava o login
+                        // da pessoa para lá achando que era o CRICRI BR. Agora ela é trocada pela de verdade, uma vez, ao abrir o menu.
                         var salvos = regioes[i].Servers;
-                        if (salvos != null && salvos.Length > 0 && salvos[0].Port == Porta) { _feito = true; return; }
+                        if (salvos != null && salvos.Length > 0 && salvos[0] != null && salvos[0].Port == Porta && EnderecoCerto(salvos[0].Ip)) { _feito = true; return; }
                         break;
                     }
 
@@ -124,5 +135,9 @@ namespace CriCriMods.Servidor
             _feito = true;
             Plugin.Registro.LogInfo("[servidor] " + Nome + " acrescentado na lista de regioes");
         }
+
+        // "https://cricribr.com.br", sem ligar para maiúscula nem para uma barra no fim
+        static bool EnderecoCerto(string ip) =>
+            ip != null && string.Equals(ip.TrimEnd('/'), "https://" + Endereco, StringComparison.OrdinalIgnoreCase);
     }
 }

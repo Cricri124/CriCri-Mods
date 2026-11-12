@@ -17,7 +17,7 @@
     <Nullable>disable</Nullable>
     <AssemblyName>CriCriOtimizacao</AssemblyName>
     <RootNamespace>CriCriMods</RootNamespace>
-    <Version>0.5.0</Version>
+    <Version>0.6.0</Version>
     <DebugType>none</DebugType>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -39,6 +39,21 @@
     <Reference Include="UnityEngine.UI"><HintPath>$(InteropDir)\interop\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.Physics2DModule"><HintPath>$(InteropDir)\interop\UnityEngine.Physics2DModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.TextRenderingModule"><HintPath>$(InteropDir)\interop\UnityEngine.TextRenderingModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- 11/11, Leve.cs: Animator (off screen it stops writing the picture). -->
+    <Reference Include="UnityEngine.AnimationModule"><HintPath>$(InteropDir)\interop\UnityEngine.AnimationModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- 12/11, the HUD editor: touches, mouse and keys (Input) -->
+    <Reference Include="UnityEngine.InputLegacyModule"><HintPath>$(InteropDir)\interop\UnityEngine.InputLegacyModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!--
+    PC test build only (never shipped): -p:DefineConstants=OTIM_TESTE with -p:InteropDir=<Among Us>\BepInEx adds the
+    pilot (src\Piloto.cs: opens Freeplay by itself, counts what animates, measures frame times, takes pictures).
+    Output to a folder of your own (-o), never over bin\Release.
+  -->
+  <ItemGroup Condition="$(DefineConstants.Contains('OTIM_TESTE'))">
+    <Reference Include="UnityEngine.ImageConversionModule"><HintPath>$(InteropDir)\interop\UnityEngine.ImageConversionModule.dll</HintPath><Private>false</Private></Reference>
+    <!-- the pilot counts the map's particle systems (the mod itself does not touch them) -->
+    <Reference Include="UnityEngine.ParticleSystemModule"><HintPath>$(InteropDir)\interop\UnityEngine.ParticleSystemModule.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 
 </Project>

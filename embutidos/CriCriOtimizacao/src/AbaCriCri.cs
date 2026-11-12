@@ -65,11 +65,19 @@ namespace CriCriMods
             public Opcao Daltonico, Streamer;
             public Transform BotaoDaltonico, ColunaDireita, Geral;
             public float VaoLogado = -1f;
+            // (11/11) No PC as opções ficam numa aba própria (MontarPc): a aba, a aba do jogo que serviu de molde e
+            // o lugar dela na lista do jogo.
+            public bool Pc;
+            public TabGroup Aba, MoldeDaAba;
+            public int IndiceDaAba = -1;
+            public bool PosicionouPc;
+            public string RotuloDaAba;
         }
 
         static readonly Dictionary<IntPtr, Montagem> _montagens = new Dictionary<IntPtr, Montagem>();
         static readonly HashSet<IntPtr> _falhas = new HashSet<IntPtr>();
         static bool _logouEstrutura;
+        static bool _mais;   // "Mais opções" aberto
         static readonly Color Verde = new Color(0.1f, 1f, 0.1f, 1f);
         static readonly Color Apagado = new Color(1f, 1f, 1f, 0.45f);
 
@@ -83,7 +91,45 @@ namespace CriCriMods
                 _startFunciona = true;
                 Log.LogInfo("[aba] o menu de opcoes avisa quando abre (Start); paro a busca de meio em meio segundo");
             }
-            Construir(menu);
+            if (Plataforma.Pc) Pendente(menu);   // a aba do PC espera a caixa parar (MontarPendentesPc)
+            else Construir(menu);
+        }
+
+        // PC: os menus que ainda esperam a aba.
+        static readonly List<OptionsMenuBehaviour> _pendentesPc = new List<OptionsMenuBehaviour>();
+        static readonly Dictionary<IntPtr, float> _larguraPc = new Dictionary<IntPtr, float>();
+
+        static void Pendente(OptionsMenuBehaviour menu)
+        {
+            if (menu == null) return;
+            IntPtr p = menu.Pointer;
+            if (_montagens.ContainsKey(p) || _falhas.Contains(p)) return;
+            for (int i = 0; i < _pendentesPc.Count; i++)
+                if (_pendentesPc[i] != null && _pendentesPc[i].Pointer == p) return;
+            _pendentesPc.Add(menu);
+        }
+
+        /* A aba do PC só é montada com a caixa das Definições aberta e do mesmo tamanho em dois tiques seguidos (meio
+           segundo). Dois motivos: no meio da animação de abrir as medidas ainda não valem; e outro mod que também põe
+           aba ali tem de ir PRIMEIRO (o QoL do dono monta a dele assim que a caixa para por dois quadros). Montando
+           antes, a nossa aba, a última da lista, virava o molde da dele: a dele saía com um quarto do tamanho e fora
+           da caixa (visto na rodada 15). */
+        static void MontarPendentesPc()
+        {
+            for (int i = _pendentesPc.Count - 1; i >= 0; i--)
+            {
+                var menu = _pendentesPc[i];
+                if (menu == null) { _pendentesPc.RemoveAt(i); continue; }
+                if (!menu.isActiveAndEnabled || menu.Background == null) continue;
+                IntPtr p = menu.Pointer;
+                float w = menu.Background.bounds.size.x;
+                _larguraPc.TryGetValue(p, out float antes);
+                _larguraPc[p] = w;
+                if (w < 4f || Math.Abs(w - antes) > 0.005f) continue;
+                _pendentesPc.RemoveAt(i);
+                _larguraPc.Remove(p);
+                Construir(menu);
+            }
         }
 
         // Every 0.5 s from Otimizacao.Update.
@@ -93,14 +139,24 @@ namespace CriCriMods
             {
                 var menus = UnityEngine.Object.FindObjectsOfType<OptionsMenuBehaviour>();
                 for (int i = 0; i < menus.Length; i++)
-                    if (menus[i] != null && menus[i].isActiveAndEnabled) Construir(menus[i]);
+                    if (menus[i] != null && menus[i].isActiveAndEnabled) { if (Plataforma.Pc) Pendente(menus[i]); else Construir(menus[i]); }
             }
+            if (Plataforma.Pc && _pendentesPc.Count > 0) MontarPendentesPc();
 
             var mortos = new List<IntPtr>();
             foreach (var par in _montagens)
             {
                 var m = par.Value;
                 if (m.Menu == null || m.Conteudo == null) { mortos.Add(par.Key); continue; }
+                if (m.Pc)
+                {
+                    // PC: a aba própria. Nada do mod entra em Gráficos nem em Geral.
+                    PosicionarAbaPc(m);
+                    if (!m.Conteudo.activeInHierarchy) continue;
+                    PosicionarPc(m);
+                    Atualizar(m);
+                    continue;
+                }
                 PosicionarDaltonico(m);
                 PosicionarStreamer(m);
                 if (!m.Conteudo.activeInHierarchy) continue;
@@ -134,6 +190,8 @@ namespace CriCriMods
             var abas = menu.Tabs;
             if (abas == null || abas.Length == 0) { Log.LogWarning("[aba] o menu de opcoes nao tem abas"); return null; }
             LogEstrutura(menu);
+            // (11/11) No PC a aba Gráficos e a Geral do jogo são outras: as opções ganham uma aba própria
+            if (Plataforma.Pc) return MontarPc(menu);
 
             TabGroup graficos = null;
             Transform geral = null;
@@ -561,56 +619,100 @@ namespace CriCriMods
             if (maxHz >= 120) quadros.Add(120);
             string Sn(bool v) => v ? "Sim" : "Não";
 
+            /* (12/11) DUAS PÁGINAS. Com "Mais opções" fechado: Otimização, Ping, Personalizar HUD, Modo escuro e Mais opções. Aberto: o resto, no
+               lugar dos de cima (Limite de FPS, Modo flash, Movimento suave, Texturas, Sombra do PC e Voltar). Assim a grade nunca
+               passa de 6 botões em cima da "Imagem tremida" (com o Ping e o HUD novos seriam 10 de uma vez). */
+            Func<bool> pagina1 = () => !_mais, pagina2 = () => _mais;
             // row 1
             m.Opcoes.Add(new Opcao
             {
-                // to compare: "Não" = the game exactly as it comes (the FPS counter stays)
-                Rotulo = () => "Otimização: " + (o.Ligada ? "Sim" : "Não (jogo normal)"),
+                Visivel = pagina1,
+                /* (11/11, ele: "menos texto, menos complexidade, mais facilidade") Um botão só escolhe tudo: cada
+                   toque troca o nível (Equilibrado > Rápido > Bonito > Não) e o nível escreve o tamanho da tela e as
+                   texturas (Opcoes.PorNivel). "Não" = o jogo exatamente como vem, para comparar (o contador fica). */
+                Rotulo = () => "Otimização: " + (o.Ligada ? Opcoes.NomeDoNivel(o.Nivel) : "Não (jogo normal)"),
                 Ligada = () => o.Ligada,
                 Clique = () =>
                 {
-                    o.Ligada = !o.Ligada;
-                    // CriCri, 08/11: turning it on brings the recommended size; the slider moves to it on the next tick
-                    if (o.Ligada)
-                    {
-                        o.Resolucao = Opcoes.Recomendada();
-                        if (m.Resolucao != null) m.Resolucao.Indice = -1;
-                    }
+                    if (!o.Ligada) o.PorNivel(Opcoes.Equilibrado);
+                    else if (o.Nivel == Opcoes.Equilibrado) o.PorNivel(Opcoes.Rapido);
+                    else if (o.Nivel == Opcoes.Rapido) o.PorNivel(Opcoes.Bonito);
+                    else o.Ligada = false;
+                    // the slider moves to the level's size on the next tick
+                    if (m.Resolucao != null) m.Resolucao.Indice = -1;
                     Salvar();
                 },
             });
-            m.Opcoes.Add(new Opcao
-            {
-                Rotulo = () => "Contador de FPS: " + Sn(o.ContadorFps),
-                Ligada = () => o.ContadorFps,
-                Clique = () => { o.ContadorFps = !o.ContadorFps; Salvar(); },
-            });
+            // (12/11) o "Contador de FPS" virou a barra do ping: o FPS vai junto do ping, embaixo
+            m.Opcoes.Add(OpcaoDoPing(pagina1));
             // row 2
+            m.Opcoes.Add(OpcaoDoHud(m, pagina1));
+            m.Opcoes.Add(OpcaoDoEscuro(pagina1));
             m.Opcoes.Add(new Opcao
             {
                 Rotulo = () => "Limite de FPS: " + (o.Fps > 0 ? o.Fps.ToString() : "do jogo"),
                 Ligada = () => o.Ligada && o.Fps > 0,
                 Clique = () => { o.Fps = Proximo(quadros, o.Fps); Salvar(); },
+                Visivel = pagina2,
             });
+            // row 3, only with "Mais opções" open (no anti-aliasing: phone test 08/11, MSAA 4x left Freeplay with a
+            // black screen; the game's lights and shadows render through textures that break with it)
             m.Opcoes.Add(new Opcao
             {
                 Rotulo = () => "Modo flash: " + Sn(o.ModoFlash),
                 Ligada = () => o.Ligada && o.ModoFlash,
                 Clique = () => { o.ModoFlash = !o.ModoFlash; Salvar(); },
+#if OTIM_DIAG
+                Visivel = () => false,   // no APK de teste o lugar dele é do Diagnóstico (a opção continua valendo)
+#else
+                Visivel = pagina2,
+#endif
             });
-            // row 3 (no anti-aliasing: phone test 08/11, MSAA 4x left Freeplay with a black screen; the game's
-            // lights and shadows render through textures that break with it)
             m.Opcoes.Add(new Opcao
             {
                 Rotulo = () => "Movimento suave: " + Sn(o.MovimentoSuave),
                 Ligada = () => o.Ligada && o.MovimentoSuave,
                 Clique = () => { o.MovimentoSuave = !o.MovimentoSuave; Salvar(); },
+                Visivel = pagina2,
             });
+            // below "Imagem tremida", only with "Mais opções" open
             m.Opcoes.Add(new Opcao
             {
                 Rotulo = () => "Texturas no máximo: " + Sn(o.TexturasMaximas),
                 Ligada = () => o.Ligada && o.TexturasMaximas,
                 Clique = () => { o.TexturasMaximas = !o.TexturasMaximas; Salvar(); },
+                Visivel = pagina2,
+            });
+            /* (11/11) Sombra.cs: a sombra que o jogo usa no PC (placa de vídeo) no lugar da de raios do Android. É
+               TESTE e nasce desligada: ninguém viu num celular ainda. (O "fora da tela não trabalha" do Leve.cs não
+               tem botão: na tela nada muda, e "Otimização: Não" já desliga.) */
+            m.Opcoes.Add(new Opcao
+            {
+                // (11/11, noite) ligar dentro da partida mede ali mesmo: 4 s com a sombra do jogo, 4 s com a do PC,
+                // e o botão mostra por um minuto "Sombra do PC: 38 para 51 FPS" (Sombra.Botao)
+                Rotulo = () => Sombra.Rotulo() ?? "Sombra do PC (teste): " + Sn(o.SombraDoPc),
+                Ligada = () => o.Ligada && o.SombraDoPc,
+                Clique = () => { Sombra.Botao(); Salvar(); },
+                Visivel = pagina2,
+            });
+#if OTIM_DIAG
+            /* SÓ NO APK DE TESTE: mede no aparelho onde o tempo do quadro vai (Diagnostico.cs). Fica no lugar do
+               "Modo flash" (que só vale na abertura do jogo) para a grade continuar com as mesmas linhas. */
+            m.Opcoes.Add(new Opcao
+            {
+                Rotulo = Diagnostico.Rotulo,
+                Ligada = () => Diagnostico.Rodando,
+                Clique = Diagnostico.Botao,
+                Visivel = pagina2,
+            });
+#endif
+            /* (11/11) O resto fica guardado atrás deste botão. (12/11) Ele troca de página: aberto, mostra o resto no lugar dos de
+               cima e vira "Voltar". Fecha sozinho quando o jogo reabre. */
+            m.Opcoes.Add(new Opcao
+            {
+                Rotulo = () => _mais ? "Voltar" : "Mais opções",
+                Ligada = () => false,
+                Clique = () => { _mais = !_mais; },
             });
             // below "Imagem tremida": the main-menu style of the CriCriMenu mod (4 choices, the game's own included)
             string estilo = EstiloMenu.Ler();
@@ -623,8 +725,322 @@ namespace CriCriMods
                     estilo = EstiloMenu.Valores[(Array.IndexOf(EstiloMenu.Valores, estilo) + 1) % EstiloMenu.Valores.Length];
                     EstiloMenu.Salvar(estilo);
                 },
-                Visivel = EstiloMenu.ModInstalado,
+                Visivel = () => _mais && EstiloMenu.ModInstalado(),
             });
+        }
+
+        // (12/11) A barra do ping: um botão troca o modo (só o ping, com FPS, com FPS e servidor, escondido).
+        static Opcao OpcaoDoPing(Func<bool> visivel) => new Opcao
+        {
+            Rotulo = () => "Ping: " + BarraDoPing.NomeDoModo(Opcoes.Atual.BarraPing),
+            Ligada = () => Opcoes.Atual.BarraPing != BarraDoPing.Escondido,
+            Clique = () => { var o = Opcoes.Atual; o.BarraPing = (o.BarraPing + 1) % 4; Salvar(); },
+            Visivel = visivel,
+        };
+
+        /* (12/11, ele: "um botão pra deixar modo escuro completo, só o chat, ou modo normal") O modo escuro: cada toque troca
+           normal > só o chat > completo. É o mesmo do editor do HUD (lá dá para escolher peça por peça; aí aparece "do seu jeito"). */
+        static Opcao OpcaoDoEscuro(Func<bool> visivel) => new Opcao
+        {
+            Rotulo = () => "Modo escuro: " + LayoutDoHud.NomeDoModoEscuro(LayoutDoHud.ModoEscuro()),
+            Ligada = () => LayoutDoHud.ModoEscuro() != LayoutDoHud.EscuroNormal,
+            Clique = () => { LayoutDoHud.PorModoEscuro(LayoutDoHud.ProximoModoEscuro()); LayoutDoHud.Salvar(); },
+            Visivel = visivel,
+        };
+
+        // (12/11) O editor do HUD: fecha as Definições e abre o editor por cima do HUD (EditorDoHud).
+        static string _avisoDoHud;
+        static float _avisoDoHudAte;
+        static Opcao OpcaoDoHud(Montagem m, Func<bool> visivel) => new Opcao
+        {
+            Rotulo = () => Time.unscaledTime < _avisoDoHudAte ? _avisoDoHud : "Personalizar HUD",
+            Ligada = () => LayoutDoHud.Arquivo.Atual.Count > 0,
+            Clique = () =>
+            {
+                if (!EditorDoHud.PodeAbrir(out string porque)) { _avisoDoHud = porque; _avisoDoHudAte = Time.unscaledTime + 3f; return; }
+                try { if (m.Menu != null) m.Menu.Close(); } catch { }
+                EditorDoHud.Abrir();
+            },
+            Visivel = visivel,
+        };
+
+        // ---------------- PC: a aba própria ----------------
+
+        /*
+          (11/11, noite, ele: "ele fica estranho nas configurações pq ele foi feito pra mobile, e no pc é diferente,
+          olha e corrija") NO PC a aba Gráficos do jogo tem a Resolução DELE, Ecrã inteiro, VSync, Imagem tremida e
+          Aplicar, e a aba Geral tem o "Modo para streamers" do próprio jogo. A grade do celular caía por cima das
+          abas, da barra de resolução e do VSync, a nossa barra de resolução ficava em cima da "Imagem tremida", e em
+          Geral dois botões nossos ficavam por cima dos do jogo (fotos da rodada 15).
+
+          No PC as opções ganham uma ABA PRÓPRIA, "Otimização", feita com as peças do jogo: a aba é uma cópia de uma
+          aba dele, entra na lista Tabs e abre pelo OpenTabGroup dele (o jeito que a aba "CriCri" do QoL já usa no PC
+          do dono). Nada do mod entra em Gráficos nem em Geral. Ficam de fora o que o PC já tem ou não precisa: a
+          barra de resolução (o PC tem a dele), o nível (ele só escolhia resolução e textura: vira Sim/Não), a cópia
+          do modo streamer e a "Sombra do PC" (no PC a sombra já é essa).
+
+          A aba nova tem metade do tamanho das do jogo e fica à direita da última; se outro mod já pôs uma aba ali
+          (a "CriCri" do QoL), ela vai para a esquerda da primeira. As abas do jogo não são mexidas.
+        */
+        static Montagem MontarPc(OptionsMenuBehaviour menu)
+        {
+            var abas = menu.Tabs;
+            ToggleButtonBehaviour modelo = null;
+            foreach (var b in new[] { menu.CensorChatButton, menu.EnableFriendInvitesButton, menu.ColorBlindButton })
+                if (b != null) { modelo = b; break; }
+            if (modelo == null) { Log.LogWarning("[aba] PC: nenhum botao liga/desliga do jogo pra copiar"); return null; }
+
+            // o molde: a última aba VISÍVEL que é do jogo (o menu tem uma aba escondida, e a de outro mod é encolhida)
+            TabGroup molde = null;
+            for (int i = abas.Length - 1; i >= 0 && molde == null; i--)
+            {
+                var a = abas[i];
+                if (a == null || DeMod(a) || !a.gameObject.activeInHierarchy || a.Button == null || !a.Button.gameObject.activeInHierarchy) continue;
+                molde = a;
+            }
+            if (molde == null) { Log.LogWarning("[aba] PC: nenhuma aba visivel do jogo pra copiar"); return null; }
+
+            var aba = UnityEngine.Object.Instantiate(molde, molde.transform.parent);
+            aba.name = "CriCriOtimizacao_Aba";
+            foreach (var tr in aba.GetComponentsInChildren<TextTranslatorTMP>(true)) UnityEngine.Object.DestroyImmediate(tr);
+            // o conteúdo copiado sai; entra um vazio no MESMO pai do conteúdo do molde (nunca dentro da aba, que é encolhida)
+            if (aba.Content != null && aba.Content.transform.IsChildOf(aba.transform)) UnityEngine.Object.Destroy(aba.Content);
+            var conteudo = new GameObject("CriCriOtimizacao_Conteudo");
+            var lugar = molde.Content != null ? molde.Content.transform : molde.transform;
+            conteudo.layer = lugar.gameObject.layer;
+            conteudo.transform.SetParent(lugar.parent, false);
+            conteudo.transform.localPosition = lugar.localPosition;
+            conteudo.transform.localRotation = lugar.localRotation;
+            conteudo.transform.localScale = lugar.localScale;
+            aba.Content = conteudo;
+            foreach (var tmp in aba.GetComponentsInChildren<TextMeshPro>(true))
+                if (tmp != null && !tmp.transform.IsChildOf(conteudo.transform)) tmp.text = "Otimização";
+
+            // o clique: um evento novo (o da cópia abriria a aba que serviu de molde)
+            int nova = abas.Length;
+            foreach (var pb in aba.GetComponentsInChildren<PassiveButton>(true))
+            {
+                if (pb == null || pb.transform.IsChildOf(conteudo.transform)) continue;
+                pb.OnClick = new UnityEngine.UI.Button.ButtonClickedEvent();
+                pb.OnClick.AddListener((Action)(() =>
+                {
+                    try { menu.OpenTabGroup(nova); }
+                    catch (Exception e) { Log.LogWarning("[aba] PC: abrir a aba: " + e.GetType().Name + ": " + e.Message); }
+                }));
+            }
+
+            // a aba entra na lista do jogo: o OpenTabGroup dele abre e fecha a nossa junto com as outras
+            var lista = new Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppReferenceArray<TabGroup>(abas.Length + 1);
+            for (int i = 0; i < abas.Length; i++) lista[i] = abas[i];
+            lista[nova] = aba;
+            menu.Tabs = lista;
+
+            var m = new Montagem { Menu = menu, Conteudo = conteudo, Pc = true, Aba = aba, MoldeDaAba = molde, IndiceDaAba = nova };
+            CriarOpcoesPc(m);
+            for (int i = 0; i < m.Opcoes.Count; i++)
+                Copiar(m, m.Opcoes[i], modelo, conteudo.transform, "CriCriOpcao" + i);
+            conteudo.SetActive(false);   // começa fechada, como as outras abas que não são a primeira
+            PosicionarAbaPc(m);
+            Log.LogInfo("[aba] PC: aba Otimizacao com " + m.Opcoes.Count + " opcoes (aba " + (nova + 1) + " de " + (nova + 1) + ", molde " + molde.name + ")");
+            return m;
+        }
+
+        // Uma aba que não é do jogo: a nossa ou a de outro mod do CriCri (a "CriCri" do QoL).
+        static bool DeMod(TabGroup a) => a.name.IndexOf("CriCri", StringComparison.OrdinalIgnoreCase) >= 0;
+
+        // A largura de uma aba do jogo na unidade local do pai das abas (do desenho da moldura, que não depende de animação).
+        static float LarguraDaAba(TabGroup molde)
+        {
+            float largura = 2.6f;
+            var sr = molde.Button;
+            if (sr != null && sr.sprite != null)
+            {
+                float w = sr.drawMode == SpriteDrawMode.Simple ? sr.sprite.bounds.size.x : sr.size.x;
+                for (var t = sr.transform; t != null && t != molde.transform.parent; t = t.parent) w *= Mathf.Abs(t.localScale.x);
+                if (w > 0.2f) largura = w;
+            }
+            return largura;
+        }
+
+        // A aba nova, com metade do tamanho: à direita da última aba; com a aba de outro mod já lá, à esquerda da primeira.
+        static void PosicionarAbaPc(Montagem m)
+        {
+            if (m.Aba == null || m.MoldeDaAba == null || !m.Menu.gameObject.activeInHierarchy) return;
+            var molde = m.MoldeDaAba;
+            float largura = LarguraDaAba(molde);
+            float escalaDoMolde = Mathf.Abs(molde.transform.localScale.x) > 0.0001f ? Mathf.Abs(molde.transform.localScale.x) : 1f;
+            float esquerda = float.MaxValue, direita = float.MinValue;
+            bool outroMod = false;
+            var abas = m.Menu.Tabs;
+            for (int i = 0; i < abas.Length; i++)
+            {
+                var a = abas[i];
+                if (a == null || a.Pointer == m.Aba.Pointer || !a.gameObject.activeInHierarchy) continue;
+                if (a.Button != null && !a.Button.gameObject.activeInHierarchy) continue;
+                if (DeMod(a)) outroMod = true;
+                float meia = largura * 0.5f * Mathf.Abs(a.transform.localScale.x) / escalaDoMolde;
+                float x = a.transform.localPosition.x;
+                if (x - meia < esquerda) esquerda = x - meia;
+                if (x + meia > direita) direita = x + meia;
+            }
+            if (esquerda == float.MaxValue) return;
+            const float Vao = 0.08f, Margem = 0.14f;
+            // O tamanho: o que couber entre as abas e a borda da caixa, de metade até o tamanho inteiro de uma aba do
+            // jogo (dentro da partida há só duas abas e cabe uma inteira; no menu, com três, cabe pouco mais da metade).
+            float K = 0.5f;
+            var caixa = m.Menu.Background;
+            var pai = molde.transform.parent;
+            if (caixa != null && pai != null && caixa.bounds.size.x > 4f)
+            {
+                float bordaEsq = pai.InverseTransformPoint(caixa.bounds.min).x + Margem;
+                float bordaDir = pai.InverseTransformPoint(caixa.bounds.max).x - Margem;
+                if (bordaEsq > bordaDir) { float t = bordaEsq; bordaEsq = bordaDir; bordaDir = t; }
+                float sobra = outroMod ? esquerda - Vao - bordaEsq : bordaDir - direita - Vao;
+                K = Mathf.Clamp(sobra / largura, 0.5f, 1f);
+            }
+            // numa aba pequena "Otimização" fica miúdo demais para ler: o rótulo curto
+            string rotulo = K >= 0.75f ? "Otimização" : "Otim.";
+            if (m.RotuloDaAba != rotulo)
+            {
+                m.RotuloDaAba = rotulo;
+                foreach (var tmp in m.Aba.GetComponentsInChildren<TextMeshPro>(true))
+                    if (tmp != null) tmp.text = rotulo;
+            }
+            float minha = largura * K;
+            float xNovo = outroMod ? esquerda - Vao - minha * 0.5f : direita + Vao + minha * 0.5f;
+            var pm = molde.transform.localPosition;
+            var escala = new Vector3(molde.transform.localScale.x * K, molde.transform.localScale.y * K, molde.transform.localScale.z);
+            var posicao = new Vector3(xNovo, pm.y, pm.z);
+            if (m.Aba.transform.localScale != escala) m.Aba.transform.localScale = escala;
+            if ((m.Aba.transform.localPosition - posicao).sqrMagnitude > 0.00001f)
+            {
+                m.Aba.transform.localPosition = posicao;
+                Log.LogInfo("[aba] PC: aba Otimizacao " + (outroMod ? "a esquerda da primeira (ha aba de outro mod a direita)" : "a direita da ultima")
+                    + " em x=" + xNovo.ToString("0.00") + " (abas do jogo de " + esquerda.ToString("0.00") + " a " + direita.ToString("0.00") + ", largura " + largura.ToString("0.00") + ")");
+            }
+        }
+
+        // As opções em duas colunas, logo abaixo das abas, no passo dos botões do jogo. Só com a aba aberta.
+        static void PosicionarPc(Montagem m)
+        {
+            var conteudo = m.Conteudo.transform;
+            if (m.Opcoes.Count == 0 || m.Opcoes[0].Objeto == null) return;
+            int visiveis = 0;
+            foreach (var op in m.Opcoes)
+            {
+                bool visivel = op.Visivel == null || op.Visivel();
+                if (op.Objeto != null && op.Objeto.activeSelf != visivel) op.Objeto.SetActive(visivel);
+                if (visivel) visiveis++;
+            }
+            var fundo = m.Opcoes[0].Fundo;
+            Vector3 tamanho = fundo != null ? fundo.bounds.size : Vector3.zero;
+            float ex = Math.Abs(conteudo.lossyScale.x) > 0.0001f ? Math.Abs(conteudo.lossyScale.x) : 1f;
+            float ey = Math.Abs(conteudo.lossyScale.y) > 0.0001f ? Math.Abs(conteudo.lossyScale.y) : 1f;
+            float largura = tamanho.x > 0.01f ? tamanho.x / ex : 2.5f;
+            float altura = tamanho.y > 0.01f ? tamanho.y / ey : 0.4f;
+
+            // as duas colunas e a profundidade: as dos botões do próprio jogo na aba Geral (ficam guardadas mesmo com ela fechada)
+            var menu = m.Menu;
+            var esq = menu.CensorChatButton != null ? menu.CensorChatButton.transform : (menu.ColorBlindButton != null ? menu.ColorBlindButton.transform : null);
+            var dir = menu.EnableFriendInvitesButton != null ? menu.EnableFriendInvitesButton.transform : null;
+            float xEsq = -(largura * 0.54f), xDir = largura * 0.54f, z = -1f;
+            if (esq != null)
+            {
+                Vector3 a = conteudo.InverseTransformPoint(esq.position);
+                z = a.z;
+                if (dir != null)
+                {
+                    Vector3 b = conteudo.InverseTransformPoint(dir.position);
+                    if (b.x - a.x > largura * 0.6f) { xEsq = a.x; xDir = b.x; }
+                }
+            }
+            // a primeira fileira logo abaixo das abas
+            var molde = m.MoldeDaAba;
+            Transform faixa = molde != null ? (molde.Button != null ? molde.Button.transform : molde.transform) : null;
+            float yAbas = faixa != null ? conteudo.InverseTransformPoint(faixa.position).y : altura * 6f;
+            float passoY = altura * 1.3f;
+            float y0 = yAbas - altura * 1.9f;
+
+            int k = 0;
+            for (int i = 0; i < m.Opcoes.Count; i++)
+            {
+                var op = m.Opcoes[i];
+                if (op.Objeto == null || !op.Objeto.activeSelf) continue;
+                int linha = k / 2, coluna = k % 2;
+                bool sozinha = coluna == 0 && k == visiveis - 1;
+                float x = sozinha ? (xEsq + xDir) * 0.5f : (coluna == 0 ? xEsq : xDir);
+                var alvo = new Vector3(x, y0 - passoY * linha, z);
+                k++;
+                if ((op.Objeto.transform.localPosition - alvo).sqrMagnitude > 0.0001f) op.Objeto.transform.localPosition = alvo;
+            }
+            if (!m.PosicionouPc)
+            {
+                m.PosicionouPc = true;
+                Log.LogInfo("[aba] PC: opcoes posicionadas: colunas " + xEsq.ToString("0.00") + " e " + xDir.ToString("0.00") + ", primeira fileira em y=" + y0.ToString("0.00")
+                    + ", passo " + passoY.ToString("0.00") + ", botao " + largura.ToString("0.00") + "x" + altura.ToString("0.00"));
+            }
+        }
+
+        // O que faz sentido no PC. Sem níveis (eles só escolhiam resolução e textura), sem barra, sem a sombra.
+        static void CriarOpcoesPc(Montagem m)
+        {
+            var o = Opcoes.Atual;
+            var quadros = new List<int> { 0, 30, 60, 90, 120, 144, 165, 240 };
+            string Sn(bool v) => v ? "Sim" : "Não";
+
+            m.Opcoes.Add(new Opcao
+            {
+                // a chave geral, para comparar: "Não" = o jogo como vem (o contador fica)
+                Rotulo = () => "Otimização: " + (o.Ligada ? "Sim" : "Não (jogo normal)"),
+                Ligada = () => o.Ligada,
+                Clique = () => { o.Ligada = !o.Ligada; Salvar(); },
+            });
+            m.Opcoes.Add(OpcaoDoPing(null));
+            m.Opcoes.Add(OpcaoDoHud(m, null));
+            m.Opcoes.Add(OpcaoDoEscuro(null));
+            m.Opcoes.Add(new Opcao
+            {
+                // no PC o limite só vale com o VSync do jogo desligado (com ele ligado quem manda é o monitor), e o mod
+                // não mexe no VSync: o botão dele é do jogo, na aba Gráficos
+                Rotulo = () => "Limite de FPS: " + (o.Fps > 0 ? o.Fps.ToString() : "do jogo")
+                    + (o.Ligada && o.Fps > 0 && QualitySettings.vSyncCount != 0 ? " (desligue o VSync)" : ""),
+                Ligada = () => o.Ligada && o.Fps > 0,
+                Clique = () => { o.Fps = Proximo(quadros, quadros.Contains(o.Fps) ? o.Fps : 0); Salvar(); },
+            });
+            m.Opcoes.Add(new Opcao
+            {
+                Rotulo = () => "Movimento suave: " + Sn(o.MovimentoSuave),
+                Ligada = () => o.Ligada && o.MovimentoSuave,
+                Clique = () => { o.MovimentoSuave = !o.MovimentoSuave; Salvar(); },
+            });
+            m.Opcoes.Add(new Opcao
+            {
+                Rotulo = () => "Texturas no máximo: " + Sn(o.TexturasMaximas),
+                Ligada = () => o.Ligada && o.TexturasMaximas,
+                Clique = () => { o.TexturasMaximas = !o.TexturasMaximas; Salvar(); },
+            });
+            m.Opcoes.Add(new Opcao
+            {
+                Rotulo = () => "Modo flash: " + Sn(o.ModoFlash),
+                Ligada = () => o.Ligada && o.ModoFlash,
+                Clique = () => { o.ModoFlash = !o.ModoFlash; Salvar(); },
+            });
+            m.Opcoes.Add(new Opcao
+            {
+                // só com o modo daltônico do jogo ligado (aba Geral): pinta o nome da cor de cada jogador
+                Rotulo = () => "Nome na cor do jogador: " + Sn(o.DaltonicoCorNoNome),
+                Ligada = () => o.DaltonicoCorNoNome,
+                Clique = () => { o.DaltonicoCorNoNome = !o.DaltonicoCorNoNome; Salvar(); },
+                Visivel = () => DataManager.IsSettingsLoaded && DataManager.Settings.Accessibility.ColorBlindMode,
+            });
+#if OTIM_DIAG
+            m.Opcoes.Add(new Opcao
+            {
+                Rotulo = Diagnostico.Rotulo,
+                Ligada = () => Diagnostico.Rodando,
+                Clique = Diagnostico.Botao,
+            });
+#endif
         }
 
         static bool Streamer() => DataManager.IsSettingsLoaded && DataManager.Settings.Gameplay.StreamerMode;
@@ -654,6 +1070,9 @@ namespace CriCriMods
                 Log.LogInfo("[aba] " + op.Rotulo());
             }
             catch (Exception e) { Log.LogWarning("[aba] clique: " + e.GetType().Name + ": " + e.Message); }
+            // "Mais opções" mostra e esconde botões: a grade é refeita já, sem esperar o meio segundo
+            try { if (m.Conteudo != null && m.Conteudo.activeInHierarchy) { if (m.Pc) PosicionarPc(m); else Posicionar(m); } }
+            catch (Exception e) { Log.LogWarning("[aba] grade: " + e.GetType().Name + ": " + e.Message); }
             Atualizar(m);
             PosicionarDaltonico(m);
             if (m.Streamer != null && m.Streamer.Objeto != null && m.Streamer.Objeto.activeSelf) Pintar(m.Streamer);
@@ -668,6 +1087,42 @@ namespace CriCriMods
             }
             if (m.Resolucao != null) EscreverValor(m.Resolucao);
         }
+
+#if OTIM_TESTE
+        // Só no build de teste do PC: o piloto lê os rótulos e clica nos botões como o dedo faria.
+        internal static string TesteRotulos()
+        {
+            var sb = new System.Text.StringBuilder();
+            foreach (var par in _montagens)
+            {
+                var m = par.Value;
+                if (m.Conteudo == null) continue;
+                for (int i = 0; i < m.Opcoes.Count; i++)
+                {
+                    var op = m.Opcoes[i];
+                    bool visivel = op.Objeto != null && op.Objeto.activeSelf;
+                    var lp = op.Objeto != null ? op.Objeto.transform.localPosition : Vector3.zero;
+                    sb.Append(i).Append('[').Append(visivel ? "v" : "-").Append("] ").Append(op.Rotulo())
+                      .Append(visivel ? " @" + lp.x.ToString("0.00") + "," + lp.y.ToString("0.00") : "").Append(" | ");
+                }
+                if (m.Resolucao != null && m.Resolucao.Valor != null) sb.Append("barra: ").Append(m.Resolucao.Valor.text);
+                sb.Append(" || ");
+            }
+            return sb.ToString();
+        }
+
+        internal static void TesteClicar(int i)
+        {
+            foreach (var par in _montagens)
+            {
+                var m = par.Value;
+                if (m.Conteudo == null || i >= m.Opcoes.Count) continue;
+                Clicar(m, m.Opcoes[i]);
+            }
+        }
+
+        internal static int TesteMontagens => _montagens.Count;
+#endif
 
         // Once: the menu's layout in the log (names, which tab is open), for later tuning.
         static void LogEstrutura(OptionsMenuBehaviour menu)

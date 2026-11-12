@@ -61,16 +61,78 @@ namespace CriCriMods.Servidor
         {
 #if !CRICRI_PC
             if (codigo == 401 && usada != null && usada == _chave) TrocarChave(null);
+#else
+            if (usada == null || usada != _chave) return;
+            if (codigo == 401) { _recusada = true; _recusadaAte = DateTime.UtcNow.AddMinutes(5); }
+            else if (codigo >= 200 && codigo < 400) { _recusada = false; _recusadaAte = DateTime.MinValue; }
 #endif
         }
+
+        // (11/11, achado no teste do PC) No PC a chave recusada (401) continua guardada, para a pessoa ver o aviso e trocar. Só que
+        // ninguém avisava: a tela CONTA BR seguia dizendo "guardada", o painel de amigos virava o do jogo sem explicar, e o mod
+        // seguia perguntando ao servidor com a chave morta o jogo inteiro (convites a cada 2 min, a aba a cada 5 a 30 s, o painel a
+        // cada minuto). O servidor conta chave errada POR REDE e, passando do limite, responde 429 para a casa toda, o celular
+        // tentando ligar a conta incluído. Agora: a recusa fica marcada (a tela CONTA BR mostra, ver PcConta.cs) e, por 5 minutos
+        // depois de cada 401, nenhum pedido sai com essa chave: quem pede recebe o mesmo 401 na hora, sem rede. Passados os 5
+        // minutos um pedido vai de verdade, para o caso de a chave ter voltado a valer (termos aceitos no site, conta liberada).
+        // Trocar a chave (COLAR, APAGAR) zera tudo. No celular nada disso existe: lá a chave recusada é largada na hora.
+#if CRICRI_PC
+        static bool _recusada;
+        static DateTime _recusadaAte = DateTime.MinValue;
+        internal static bool ChaveRecusada => _recusada && _chave != null;
+        internal static bool PausaDaRecusa => _recusada && _chave != null && DateTime.UtcNow < _recusadaAte;
+#else
+        internal const bool ChaveRecusada = false, PausaDaRecusa = false;
+#endif
         internal static bool Ocupado => _ocupado;
 
         static readonly object _travaCliente = new object();
 
-#if CRICRI_PC || AMIGOS_SERVIDOR_TESTE || AMIGOS_PUBLICO
         // PC: the account screen (PcConta.cs) changes the key while the game runs; phone: the key arrives with the verification. The client keeps the old one in its headers.
-        internal static void TrocarChave(string k) { lock (_travaCliente) { _chave = k; _http?.Dispose(); _http = null; } }
+        // (11/11, revisão) Sem o "#if" que ficava em volta: o Recusada (logo acima) chama isto em todo build de celular, e o build de
+        // pessoas de mentira (AMIGOS_DE_MENTIRA, o do "mods-de-teste.js mentira") não compilava mais: "TrocarChave não existe".
+        internal static void TrocarChave(string k)
+        {
+            lock (_travaCliente) { _chave = k; _http?.Dispose(); _http = null; }
+#if CRICRI_PC
+            _recusada = false;
+            _recusadaAte = DateTime.MinValue;
 #endif
+        }
+
+        // (11/11, revisão: "vulnerabilidades") A mesma regra do app (ChaveBr.limpar) e do PC (PcCofre.Limpar): 8 a 64 caracteres
+        // ASCII visíveis, sem espaço. Uma chave que chega do servidor passa por aqui ANTES de virar cabeçalho: com quebra de linha
+        // ou espaço o cabeçalho nem monta, e o mod ficava dizendo "sem conexão" a sessão inteira sem ninguém saber por quê.
+        internal static bool ChaveValida(string k)
+        {
+            if (k == null || k.Length < 8 || k.Length > 64) return false;
+            foreach (char c in k) if (c <= ' ' || c > '~') return false;
+            return true;
+        }
+
+        // (11/11, revisão) Tetos do que o mod aceita ler de uma resposta montada na memória. As respostas de verdade têm poucos KB;
+        // o filme da partida não passa por aqui (o ApiDoMod lê em fluxo, com o teto de quem chamou).
+        // (11/11, revisão) 4 MB: o servidor devolve TODOS os pedidos de amizade de uma vez, e uma conta de criador com milhares
+        // de pedidos passava de 1 MB (a aba Pedidos ficava em "Sem conexão" para sempre). O mod continua desenhando só os primeiros.
+        const long TetoDaResposta = 4L * 1024 * 1024;
+        const long TetoSemChave = 64 * 1024;
+
+        // (11/11, revisão) O mod só fala com o cricribr.com.br: não segue redirecionamento. O cabeçalho da chave já não seguia
+        // (o .NET tira), mas um 307/308 reenviaria o CORPO do pedido (o id secreto do "ligar") para onde o redirecionamento mandasse.
+        // Nenhuma rota de /api/mod/* redireciona (conferido no fonte do servidor); se um dia vier um 30x, ele vira erro e não passeio.
+        static HttpClient Novo(int segundos, long teto)
+        {
+            var h = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            {
+                Timeout = TimeSpan.FromSeconds(segundos),
+                MaxResponseContentBufferSize = teto,
+            };
+            h.DefaultRequestHeaders.UserAgent.ParseAdd("CriCriMods-Servidor/" + Plugin.Versao);
+            return h;
+        }
+
+        // Para as chamadas SEM chave (ligar a conta): um cliente por chamada, descartado por quem pediu.
+        internal static HttpClient ClienteSemChave() => Novo(20, TetoSemChave);
 
         static HttpClient Cliente()
         {
@@ -78,9 +140,8 @@ namespace CriCriMods.Servidor
             {
                 if (_http != null) return _http;
                 // 60 s: a whole match film can take a while on a phone connection (the room calls answer in milliseconds)
-                var h = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+                var h = Novo(60, TetoDaResposta);
                 h.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _chave);
-                h.DefaultRequestHeaders.UserAgent.ParseAdd("CriCriMods-Servidor/" + Plugin.Versao);
                 _http = h;
                 return h;
             }
@@ -102,6 +163,9 @@ namespace CriCriMods.Servidor
         internal static void Ler(string etag, Action<Leitura> depois)
         {
             if (_chave == null || _ocupado || DateTime.UtcNow < _naoAntes) return;
+#pragma warning disable CS0162   // no celular PausaDaRecusa é a constante "false"
+            if (PausaDaRecusa) { Respostas.Enqueue(() => depois(new Leitura { Codigo = 401 })); return; }
+#pragma warning restore CS0162
             _ocupado = true;
             string usada = _chave;
             Task.Run(async () =>
@@ -127,7 +191,9 @@ namespace CriCriMods.Servidor
         internal static void Gravar(bool padrao, Dictionary<string, object> valores, Action<int, string> depois)
         {
             if (_chave == null || DateTime.UtcNow < _naoAntes) { depois(429, null); return; }
-            string json = JsonSerializer.Serialize(new Dictionary<string, object> { ["valores"] = valores });
+#pragma warning disable CS0162
+            if (PausaDaRecusa) { depois(401, null); return; }
+#pragma warning restore CS0162
             string usada = _chave;
             Task.Run(async () =>
             {
@@ -135,6 +201,11 @@ namespace CriCriMods.Servidor
                 string resposta = null;
                 try
                 {
+                    // (11/11, "tão falando que trava") O JSON é montado AQUI, fora da linha do jogo: a primeira vez que o
+                    // System.Text.Json roda num celular custa dezenas de milissegundos (ele se prepara por reflexão), e isso caía
+                    // no meio do lobby, 0,6 s depois do primeiro toque numa opção. O dicionário é novo a cada gravação e ninguém
+                    // mexe nele depois de entregar, então ler daqui é seguro.
+                    string json = JsonSerializer.Serialize(new Dictionary<string, object> { ["valores"] = valores });
                     using var corpo = new StringContent(json, Encoding.UTF8, "application/json");
                     using var r = await Cliente().PutAsync(Base + (padrao ? "predefinicao" : "atual"), corpo).ConfigureAwait(false);
                     codigo = (int)r.StatusCode;
@@ -151,22 +222,27 @@ namespace CriCriMods.Servidor
             if ((int)r.StatusCode != 429) return;
             var depois = r.Headers.RetryAfter;
             TimeSpan t = depois?.Delta ?? (depois?.Date != null ? depois.Date.Value - DateTimeOffset.UtcNow : TimeSpan.FromSeconds(60));
-            _naoAntes = DateTime.UtcNow + (t < TimeSpan.FromSeconds(5) ? TimeSpan.FromSeconds(5) : t);
+            // (11/11, revisão) Entre 5 s e 10 min: um Retry-After torto (data errada, número enorme) deixava o mod mudo até fechar o jogo.
+            if (t < TimeSpan.FromSeconds(5)) t = TimeSpan.FromSeconds(5);
+            if (t > TimeSpan.FromMinutes(10)) t = TimeSpan.FromMinutes(10);
+            _naoAntes = DateTime.UtcNow + t;
         }
 
         // The words for a status, as the player reads them in the tab.
+        // (11/11, ele: "menos texto") Frases curtas. O 401 do celular não afirma mais "foi ligada em outro aparelho": desde a chave
+        // por aparelho (11/11) o 401 também é termos vencidos ou conta suspensa, e a frase antiga dizia uma coisa que podia não ser.
         internal static string Aviso(int codigo) => codigo switch
         {
 #if CRICRI_PC
-            401 => "A chave do CRICRI BR foi recusada. Gere uma nova em cricribr.com.br (Minha conta) e cole no botão CONTA BR do menu.",
+            401 => "Chave recusada. Gere outra em cricribr.com.br (Minha conta) e cole no CONTA BR do menu.",
 #else
-            401 => "Sua conta foi ligada em outro aparelho. Entre numa sala do CRICRI BR para ligar neste.",
+            401 => "Conta desligada neste aparelho. Entre numa sala do CRICRI BR para ligar de novo.",
 #endif
-            403 => "Só quem criou a sala pode mudar isso.",
-            409 => "As opções da sala só mudam no lobby, antes ou depois da partida.",
-            429 => "Muitos pedidos seguidos. Espere um minuto.",
-            0 => "Sem conexão com o servidor CRICRI BR agora.",
-            _ => "As opções da sala chegam com o servidor CRICRI BR.",
+            403 => "Só o dono da sala muda isso.",
+            409 => "Só dá para mudar no lobby.",
+            429 => "Muitos pedidos. Espere um minuto.",
+            0 => "Sem conexão com o CRICRI BR.",
+            _ => "O CRICRI BR não respondeu. Tente de novo.",
         };
     }
 }

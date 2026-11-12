@@ -31,6 +31,12 @@ namespace CriCriMods
         TextMeshPro _contador;
         Camera _cameraDoContador;
         static readonly Action _flash = Flash.Quadro;
+        static readonly Action _leve = Leve.Quadro;
+        static readonly Action _sombra = Sombra.Tique;
+        static readonly Action _sombraQuadro = Sombra.Quadro;
+#if OTIM_DIAG
+        static readonly Action _diag = Diagnostico.Quadro;
+#endif
 
         void Start()
         {
@@ -40,8 +46,31 @@ namespace CriCriMods
             AplicarAgora();
         }
 
+#if OTIM_TESTE
+        // Só no build de teste do PC (o piloto faz os bonecos do Freeplay andarem, sem pacote).
+        void FixedUpdate()
+        {
+            try { Piloto.Fisica(); } catch { }
+        }
+#endif
+
+        // (12/11) Depois de todos os Update do jogo (o lugar dos botões, o texto do ping): a barra do ping, o HUD da pessoa e o
+        // editor do HUD são postos aqui, por cima do que o jogo pôs neste quadro.
+        void LateUpdate()
+        {
+            try { BarraDoPing.Quadro(); }
+            catch (Exception e) { if (_avisos.Add("barra" + e.GetType().Name)) Log.LogWarning("[ping] " + e.GetType().Name + ": " + e.Message); }
+            try { LayoutDoHud.Quadro(); }
+            catch (Exception e) { if (_avisos.Add("hud" + e.GetType().Name)) Log.LogWarning("[hud] " + e.GetType().Name + ": " + e.Message); }
+            try { EditorDoHud.Quadro(); }
+            catch (Exception e) { if (_avisos.Add("editor" + e.GetType().Name)) Log.LogWarning("[hud] editor: " + e.GetType().Name + ": " + e.Message); }
+        }
+
         void Update()
         {
+            try { Fps.Quadro(); } catch { }
+            try { LayoutDoHud.Teclas(); }
+            catch (Exception e) { if (_avisos.Add("teclas" + e.GetType().Name)) Log.LogWarning("[hud] teclas: " + e.GetType().Name + ": " + e.Message); }
             _quadros++;
             _tempo += Time.unscaledDeltaTime;
             if (_tempo >= 0.5f)
@@ -53,8 +82,17 @@ namespace CriCriMods
             }
 
             Tentar("flash", _flash);
+            Tentar("leve", _leve);
+            Tentar("sombra-medida", _sombraQuadro);   // só soma o tempo enquanto o botão da sombra mede
+#if OTIM_DIAG
+            Tentar("diag", _diag);                    // só no APK de teste
+#endif
             try { Travadas.Quadro(_cena); }
             catch (Exception e) { if (_avisos.Add("travadas" + e.GetType().Name)) Log.LogWarning("[travadas] " + e.Message); }
+#if OTIM_TESTE
+            try { Piloto.Quadro(_cena); }
+            catch (Exception e) { if (_avisos.Add("piloto" + e.Message)) Log.LogWarning("[piloto] " + e.GetType().Name + ": " + e.Message + "\n" + e.StackTrace); }
+#endif
 
             float agora = Time.unscaledTime;
             if (agora >= _proxAplicar)
@@ -68,7 +106,9 @@ namespace CriCriMods
             {
                 _proxJogadores = agora + 0.5f;
                 Tentar("jogadores", Jogadores);
-                Tentar("noticias", Noticias.Tique);
+                Tentar("sombra", _sombra);
+                // (11/11) a tela de notícias só existe no menu: na sala e na partida não há lista para vigiar
+                if (_cena != "OnlineGame" && _cena != "Tutorial") Tentar("noticias", Noticias.Tique);
             }
             if (agora >= _proxAba)
             {
@@ -133,9 +173,16 @@ namespace CriCriMods
 
         internal void AplicarAgora()
         {
+#if OTIM_TESTE
+            // Build de teste no PC do dono: resolução, FPS e texturas do jogo dele não são tocados (a Unity guarda
+            // o Screen.SetResolution para a próxima abertura). O piloto solta o quadro por conta própria.
+#else
             Tentar("fps", AplicarFps);
-            Tentar("resolucao", AplicarResolucao);
+            // (11/11) No PC o tamanho da tela e o ecrã inteiro são do jogador, pelos controles do próprio jogo
+            // (aba Gráficos): o mod não pede resolução lá.
+            if (!Plataforma.Pc) Tentar("resolucao", AplicarResolucao);
             Tentar("qualidade", AplicarQualidade);
+#endif
         }
 
         void AplicarFps()
@@ -161,13 +208,14 @@ namespace CriCriMods
                 }
                 return;
             }
-            // targetFrameRate only counts with vSync off
-            if (QualitySettings.vSyncCount != 0) QualitySettings.vSyncCount = 0;
+            // targetFrameRate only counts with vSync off. (11/11) No PC o botão do VSync é do jogo (aba Gráficos): o mod
+            // não mexe nele, e o limite simplesmente espera a pessoa desligar o VSync lá (o botão do limite avisa).
+            if (!Plataforma.Pc && QualitySettings.vSyncCount != 0) QualitySettings.vSyncCount = 0;
             int escolhido = alvo;
             // 08/11 (stutters walking): where people walk (lobby, Freeplay, a round) the frames follow the screen's
             // real rate (60 on the CriCri's Xiaomi in a match): frames the screen can't show are only heat, and a
             // hot phone slows down. In menus the chosen rate stays (there HyperOS raised the screen to 90 Hz).
-            if (_cena == "OnlineGame" || _cena == "Tutorial")
+            if (!Plataforma.Pc && (_cena == "OnlineGame" || _cena == "Tutorial") && _taxaEstado != TaxaMedindo && _taxaEstado != TaxaDeu)
             {
                 int hz = HzAtual();
                 if (hz >= 30 && hz < alvo) alvo = hz;
@@ -179,7 +227,7 @@ namespace CriCriMods
             }
             _fpsQueApliquei = alvo;
             _fpsAplicado = true;
-            GarantirTaxaDaTela(escolhido);
+            if (!Plataforma.Pc) GarantirTaxaDaTela(escolhido);   // (no PC a taxa da tela é do Windows e do jogo)
         }
         bool _fpsAplicado;
         int _fpsQueApliquei;
@@ -262,6 +310,7 @@ namespace CriCriMods
                 return;
             }
             Medidas(o.ResolucaoEfetiva, out int largura, out int altura);
+            if (TaxaAlta(o, largura, altura)) return;
             if (largura != _larguraQueApliquei || altura != _alturaQueApliquei || _cena != _cenaDasTentativas)
             {
                 _tentativasDeResolucao = 0;
@@ -289,6 +338,71 @@ namespace CriCriMods
             if (_tentativasDeResolucao == 6)
                 Log.LogWarning("[jogo] a resolucao " + largura + "x" + altura + " nao pegou em 6 pedidos; paro de pedir ate trocar a opcao ou a cena");
         }
+        /*
+          (12/11, celular do CriCri, Xiaomi 2409BRN2CL, tela 60/90/120 Hz: "na partida fica preso em 60fps podendo passar")
+          TELA RÁPIDA COM O JOGO MENOR. O Diagnóstico mediu 16,7 ms em tudo: o jogo estava no limite da tela, não pesado. No
+          "Equilibrado" o jogo é desenhado em 80% (1312x576) e a Unity só aceita pedir 90/120 Hz junto com o tamanho cheio da tela
+          (08/11); então a tela ficava a 60 Hz e, na partida, o limite pela taxa da tela (AplicarFps) prendia o jogo em 60.
+          O experimento, uma vez por abertura do jogo, quando o limite escolhido passa de 60 e a resolução é menor que a tela:
+          1) pede a tela inteira com a taxa escolhida (o Android troca o modo da tela); 2) assim que pegou (ou em 4 s), volta para o
+          tamanho menor, sem taxa; 3) mede o FPS de verdade por 8 s, sem o limite pela taxa: passou de 62, deu (fica assim); não
+          passou, a tela voltou a 60 e o limite volta (sem tremida), e não tenta de novo até abrir o jogo outra vez. Tudo no registro.
+        */
+        const int TaxaNada = 0, TaxaPediuInteira = 1, TaxaMedindo = 2, TaxaDeu = 3, TaxaNaoDeu = 4;
+        // (12/11, medido no celular dele) DESLIGADO na versão pública: no Xiaomi o próprio sistema (HyperOS) segura o app em 60 Hz
+        // ("PRIORITY_MIUI_REFRESH_RATE max 60" no dumpsys display) e ignora o pedido do app; o experimento só trocava a tela na
+        // abertura, sem ganho. O código fica para testar em outro celular (trocar para true num APK de teste).
+        const bool TelaRapidaLigada = false;
+        int _taxaEstado;
+        float _taxaDesde;
+        double _taxaPedida;
+
+        bool TaxaAlta(Opcoes o, int largura, int altura)
+        {
+            if (Plataforma.Pc || !TelaRapidaLigada) return false;
+            float agora = Time.unscaledTime;
+            double hz = 0;
+            try { hz = Screen.currentResolution.refreshRateRatio.value; } catch { }
+            switch (_taxaEstado)
+            {
+                case TaxaNada:
+                {
+                    if (o.FpsEfetivo <= 60 || EhNativa(largura, altura)) return false;
+                    if (hz + 0.5 >= o.FpsEfetivo) return false;
+                    if (!TaxaPara(o.FpsEfetivo, out RefreshRate taxa) || taxa.value <= Math.Max(hz, 60) + 0.5) return false;
+                    int a = Display.main.systemWidth, b = Display.main.systemHeight;
+                    int L = Math.Max(a, b), A = Math.Min(a, b);
+                    _taxaPedida = taxa.value;
+                    _taxaEstado = TaxaPediuInteira;
+                    _taxaDesde = agora;
+                    Log.LogInfo("[jogo] tela rapida: 1) pedindo a tela inteira " + L + "x" + A + " a " + Math.Round(taxa.value) + " Hz (a unity acha " + Math.Round(hz) + " Hz; o jogo vai em " + largura + "x" + altura + ")");
+                    Screen.SetResolution(L, A, FullScreenMode.FullScreenWindow, taxa);
+                    return true;
+                }
+                case TaxaPediuInteira:
+                {
+                    bool pegou = hz + 0.5 >= _taxaPedida;
+                    if (!pegou && agora - _taxaDesde < 4f) return true;
+                    Log.LogInfo("[jogo] tela rapida: 2) a tela inteira ficou a " + Math.Round(hz) + " Hz" + (pegou ? "" : " (nao pegou em 4 s)") + "; voltando para " + largura + "x" + altura);
+                    _taxaEstado = TaxaMedindo;
+                    _taxaDesde = agora;
+                    _tentativasDeResolucao = 0;
+                    _cenaDasTentativas = "";
+                    return false;   // o caminho normal põe o tamanho menor (sem taxa)
+                }
+                case TaxaMedindo:
+                {
+                    if (agora - _taxaDesde < 8f) return false;
+                    bool deu = _fpsMedido > 62f;
+                    _taxaEstado = deu ? TaxaDeu : TaxaNaoDeu;
+                    Log.LogInfo("[jogo] tela rapida: 3) " + (deu ? "DEU" : "nao deu") + ": " + _fpsMedido.ToString("0") + " fps medidos em " + Screen.width + "x" + Screen.height
+                        + " (a unity acha a tela a " + Math.Round(hz) + " Hz, cena " + _cena + ")" + (deu ? "" : "; o limite pela taxa da tela volta"));
+                    return false;
+                }
+            }
+            return false;
+        }
+
         bool _resolucaoAplicada;
         int _larguraQueApliquei, _alturaQueApliquei, _vistoL, _vistoA, _tentativasDeResolucao;
         string _cenaDasTentativas = "";
@@ -465,7 +579,11 @@ namespace CriCriMods
 
         void AtualizarContador()
         {
-            if (!Opcoes.Atual.ContadorFps)
+            // (12/11) Onde o jogo tem o texto do ping (sala, Freeplay, partida), o FPS vai na barra do ping (BarraDoPing). Este
+            // contador de cima fica só para onde não há ping (o menu), e só nos modos da barra que têm FPS.
+            int modo = Opcoes.Atual.BarraPing;
+            bool querFps = modo == BarraDoPing.PingEFps || modo == BarraDoPing.ComServidor;
+            if (!querFps || BarraDoPing.PingDoJogo != null)
             {
                 if (_contador != null) _contador.gameObject.SetActive(false);
                 return;
@@ -483,7 +601,7 @@ namespace CriCriMods
             if (_contador == null) return;
             if (!_contador.gameObject.activeSelf) _contador.gameObject.SetActive(true);
 
-            int fps = Mathf.RoundToInt(_fpsMedido);
+            int fps = Fps.Mostrado;   // (12/11) o número estável, o mesmo da barra do ping
             _contador.text = fps + " FPS";
             // Fixed bands (the CriCri's rule, 08/11): 0-30 red, 31-45 yellow, 46+ green. Relative to the target, 60
             // of 120 showed red and 30 of 30 green, which read backwards.

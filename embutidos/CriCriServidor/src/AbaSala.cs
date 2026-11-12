@@ -70,16 +70,37 @@ namespace CriCriMods.Servidor
         internal static void MenuDonoAbriu(GameSettingMenu m) => _menuDono = m;
         internal static void MenuVerAbriu(LobbyViewSettingsPane p) => _menuVer = p;
 
+        // (11/11, ele: "uma ULTRA melhoria na otimização", "tão falando que trava") Este Update roda em TODO quadro do jogo inteiro:
+        // menu, lobby e partida. Antes, a cada quadro, ele criava três funções novas (lixo para o coletor) e perguntava ao jogo o
+        // nome da cena e o nome da região (dois textos copiados do jogo para o .NET). Agora a pergunta "estou num lobby do
+        // CRICRI BR?" é feita 4 vezes por segundo e guardada, e sem menu de opções aberto o quadro termina logo depois dela.
+        float _proxSala;
+        bool _aqui;
+
         void Update()
         {
             while (SalaApi.Respostas.TryDequeue(out var acao)) Tentar("resposta", acao);
-            bool aqui = false;
-            Tentar("sala", () => aqui = NaSalaCricriBr());
-            Tentar("dono", () => Garantir(ref _painelDono, true, aqui));
-            Tentar("ver", () => Garantir(ref _painelVer, false, aqui));
+            float agora = Time.unscaledTime;
+            if (agora >= _proxSala)
+            {
+                _proxSala = agora + 0.25f;
+                try { _aqui = NaSalaCricriBr(); }
+                catch (Exception e) { _aqui = false; Erro("sala", e); }
+            }
+            bool aqui = _aqui;
+            // (object): pergunta do .NET, sem atravessar para o jogo. Só há o que garantir com um menu que já abriu alguma vez.
+            if ((object)_menuDono != null || _painelDono != null)
+            {
+                try { Garantir(ref _painelDono, true, aqui); }
+                catch (Exception e) { Erro("dono", e); }
+            }
+            if ((object)_menuVer != null || _painelVer != null)
+            {
+                try { Garantir(ref _painelVer, false, aqui); }
+                catch (Exception e) { Erro("ver", e); }
+            }
             if (!aqui) { if (_gravarEm > 0f) { _gravarEm = -1f; _etag = null; } return; }   // a tap not sent: the next read must show the real value
 
-            float agora = Time.unscaledTime;
             bool aberto = (_painelDono != null && _painelDono.Visivel) || (_painelVer != null && _painelVer.Visivel);
             if (agora >= _proxLeitura && !SalaApi.Ocupado)
             {
@@ -137,21 +158,39 @@ namespace CriCriMods.Servidor
             using (l.Corpo)
             {
                 var raiz = l.Corpo.RootElement;
+                // (11/11, revisão: "resposta torta") Um 200 que não é um objeto JSON (página de erro de um proxy, lista, texto) fazia o
+                // TryGetProperty lançar exceção e a aba ficava em "Carregando..." para sempre. Agora conta como "não respondeu".
+                if (raiz.ValueKind != JsonValueKind.Object)
+                {
+                    _temDados = false;
+                    _etag = null;
+                    _aviso = SalaApi.Aviso(-1);
+                    Redesenhar();
+                    return;
+                }
                 _etag = l.Etag;
                 if (raiz.TryGetProperty("sala", out var sala) && sala.ValueKind == JsonValueKind.Null)
                 {
                     _semSala = true;
                     _temDados = false;
-                    _aviso = "O servidor ainda não vê você nesta sala. Espere uns segundos.";
+                    _aviso = "Esperando o servidor ver você nesta sala...";
                     Redesenhar();
                     return;
                 }
                 _semSala = false;
-                _versao = raiz.TryGetProperty("versao", out var v) && v.TryGetInt32(out int n) ? n : _versao + 1;
+                // TryGetInt32 lança exceção quando o valor não é número (a armadilha do painel de amigos, 08/11): o tipo vem conferido antes
+                _versao = raiz.TryGetProperty("versao", out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int n) ? n : _versao + 1;
                 _souHost = raiz.TryGetProperty("souHost", out var h) && h.ValueKind == JsonValueKind.True;
                 _opcoes.Clear();
                 if (raiz.TryGetProperty("opcoes", out var lista) && lista.ValueKind == JsonValueKind.Array)
-                    foreach (var o in lista.EnumerateArray()) _opcoes.Add(LerOpcao(o));
+                    foreach (var o in lista.EnumerateArray())
+                    {
+                        // cada opção vira uma linha desenhada: a lista tem teto, e o que não é objeto ou vem sem id fica de fora
+                        if (_opcoes.Count >= MaximoDeOpcoes) break;
+                        if (o.ValueKind != JsonValueKind.Object) continue;
+                        var opcao = LerOpcao(o);
+                        if (opcao.Id.Length > 0 && opcao.Id.Length <= 64) _opcoes.Add(opcao);
+                    }
                 _valores.Clear();
                 if (raiz.TryGetProperty("valores", out var valores) && valores.ValueKind == JsonValueKind.Object)
                     foreach (var p in valores.EnumerateObject()) _valores[p.Name] = Valor(p.Value);
@@ -165,24 +204,36 @@ namespace CriCriMods.Servidor
             }
         }
 
+        // (11/11, revisão: "resposta do servidor é dado não confiável") tetos do que a aba desenha
+        const int MaximoDeOpcoes = 64, MaximoDeEscolhas = 32;
+
         static OpcaoSala LerOpcao(JsonElement o)
         {
             var r = new OpcaoSala
             {
                 Id = Texto(o, "id"),
-                Nome = Texto(o, "nome"),
+                // os textos que vão para a tela chegam como texto puro e curto (TextoPuro.cs): o TextMeshPro das linhas interpreta tags
+                Nome = TextoPuro.De(Texto(o, "nome"), TextoPuro.TamanhoDeOpcao),
                 Tipo = Texto(o, "tipo"),
                 Motivo = Texto(o, "motivo"),
-                Grupo = Texto(o, "grupo"),
+                Grupo = TextoPuro.De(Texto(o, "grupo"), 24),
                 Pode = !o.TryGetProperty("pode", out var pode) || pode.ValueKind != JsonValueKind.False,
             };
             if (o.TryGetProperty("min", out var min) && min.ValueKind == JsonValueKind.Number) r.Min = min.GetDouble();
             if (o.TryGetProperty("max", out var max) && max.ValueKind == JsonValueKind.Number) r.Max = max.GetDouble();
             if (o.TryGetProperty("passo", out var passo) && passo.ValueKind == JsonValueKind.Number && passo.GetDouble() > 0) r.Passo = passo.GetDouble();
             if (o.TryGetProperty("escolhas", out var es) && es.ValueKind == JsonValueKind.Array)
-                foreach (var e in es.EnumerateArray()) r.Escolhas.Add(new KeyValuePair<string, string>(Texto(e, "id"), Texto(e, "nome")));
+                foreach (var e in es.EnumerateArray())
+                {
+                    if (r.Escolhas.Count >= MaximoDeEscolhas) break;
+                    r.Escolhas.Add(new KeyValuePair<string, string>(Texto(e, "id"), TextoPuro.De(Texto(e, "nome"), TextoPuro.TamanhoDeOpcao)));
+                }
             return r;
         }
+
+        // (11/11, revisão) O valor de uma opção "numero" como número, venha como vier. Antes era Convert.ToDouble: um valor em texto
+        // (ou uma cultura diferente no aparelho) lançava exceção no meio do desenho e a aba ficava pela metade.
+        static double Numero(object v, double padrao) => v is double d && !double.IsNaN(d) && !double.IsInfinity(d) ? d : padrao;
 
         static string Texto(JsonElement o, string nome) =>
             o.ValueKind == JsonValueKind.Object && o.TryGetProperty(nome, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : "";
@@ -202,11 +253,13 @@ namespace CriCriMods.Servidor
             switch (o.Tipo)
             {
                 case "liga": return v is bool b && b ? "Sim" : "Não";
-                case "numero": return Convert.ToDouble(v ?? o.Min, CultureInfo.InvariantCulture).ToString("0.##", CultureInfo.GetCultureInfo("pt-BR"));
+                // (11/11, revisão: "erros de compatibilidade") Vírgula decimal sem pedir a cultura "pt-BR" ao aparelho: um .NET montado
+                // sem os dados de idioma (comum fora do PC) lança CultureNotFoundException nesse pedido, e a linha nem era desenhada.
+                case "numero": return Numero(v, o.Min).ToString("0.##", CultureInfo.InvariantCulture).Replace('.', ',');
                 default:
                     foreach (var e in o.Escolhas) if (Equals(e.Key, v as string)) return e.Value;
                     string fora = v as string ?? "";   // the server can answer a value outside the choices (live.aviso = "mod")
-                    return fora == "mod" ? "No CriCri CC" : fora;
+                    return fora == "mod" ? "No CriCri CC" : TextoPuro.De(fora, 24);
             }
         }
 
@@ -221,7 +274,7 @@ namespace CriCriMods.Servidor
                     _valores[o.Id] = !(v is bool b && b);
                     break;
                 case "numero":
-                    double atual = Convert.ToDouble(v ?? o.Min, CultureInfo.InvariantCulture);
+                    double atual = Numero(v, o.Min);
                     _valores[o.Id] = Math.Max(o.Min, Math.Min(o.Max, Math.Round((atual + sentido * o.Passo) * 1000) / 1000));
                     break;
                 default:
@@ -281,9 +334,10 @@ namespace CriCriMods.Servidor
                 var nomes = new List<string>();
                 foreach (var r in recusas.EnumerateArray())
                 {
+                    if (nomes.Count >= 4) { nomes.Add("e outras"); break; }   // o aviso do jogo é uma linha: não cabe uma lista inteira
                     string id = Texto(r, "id");
                     var op = _opcoes.Find(x => x.Id == id);
-                    nomes.Add(op != null ? op.Nome : id);
+                    nomes.Add(op != null ? op.Nome : TextoPuro.De(id, 24));
                 }
                 return "Salvo, menos: " + string.Join(", ", nomes) + ".";
             }
@@ -310,7 +364,13 @@ namespace CriCriMods.Servidor
         void Garantir(ref Painel painel, bool dono, bool aqui)
         {
             Component menu = dono ? (Component)_menuDono : _menuVer;
-            if (menu == null || menu.gameObject == null) { painel = null; return; }
+            if (menu == null || menu.gameObject == null)
+            {
+                // o menu fechou (o jogo destrói o objeto): esquecer a referência faz o Update parar de perguntar por ele a cada quadro
+                painel = null;
+                if (dono) _menuDono = null; else _menuVer = null;
+                return;
+            }
             if (painel == null || painel.Botao == null)
             {
                 painel = dono ? MontarDono(_menuDono) : MontarVer(_menuVer);
@@ -645,13 +705,14 @@ namespace CriCriMods.Servidor
             p.Marcas.Clear();
             p.Desenhado = _versao + (_temDados ? 0 : 100000) + _aviso.GetHashCode();
 
+            // (11/11, ele: "menos texto") as três frases do topo ficaram curtas; os nomes que o site cita (CONTA BR) continuam iguais
             string topo = !SalaApi.TemChave
 #if CRICRI_PC
-                ? "Ligue sua conta do CRICRI BR no botão CONTA BR do menu principal pra ver as opções desta sala."
+                ? "Cole a chave da sua conta no botão CONTA BR do menu."
 #else
-                ? "Sua conta do CRICRI BR liga sozinha em alguns segundos. Depois as opções desta sala aparecem aqui."
+                ? "Ligando sua conta... As opções aparecem aqui em segundos."
 #endif
-                : !_temDados && string.IsNullOrEmpty(_aviso) ? "Carregando as opções da sala..." : _aviso;
+                : !_temDados && string.IsNullOrEmpty(_aviso) ? "Carregando..." : _aviso;
             if (p.Dono) { DesenharDono(p, topo); return; }
 
             int i = 0;

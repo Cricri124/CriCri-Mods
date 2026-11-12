@@ -44,7 +44,7 @@ namespace CriCriMods
             try { rodada = ShipStatus.Instance != null; } catch { }
             Log.LogInfo("[travadas] 10 s " + (rodada ? "na rodada" : "em " + _cena) + ": media " + (_quadros * 1000f / _tempo).ToString("0")
                 + " fps, " + _acima33 + " quadros > 33 ms, " + _acima50 + " > 50 ms, pior " + _pior.ToString("0") + " ms" + gc
-                + " (tela " + Screen.width + "x" + Screen.height + ")");
+                + " (tela " + Screen.width + "x" + Screen.height + Cena() + ")");
             if (!_logouGc)
             {
                 _logouGc = true;
@@ -59,6 +59,20 @@ namespace CriCriMods
             _gcJogo = gcJogo;
             _gcMods = gcMods;
             Zerar();
+        }
+
+        // (11/11) quantos jogadores e qual sombra: sem isso duas linhas do registro do celular não se comparam
+        static string Cena()
+        {
+            try
+            {
+                var todos = PlayerControl.AllPlayerControls;
+                var eu = PlayerControl.LocalPlayer;
+                var luz = eu != null ? eu.lightSource : null;
+                var r = luz != null ? luz.renderer : null;
+                return ", " + (todos != null ? todos.Count : 0) + " jogadores, sombra " + (r != null ? r.Type.ToString() : "nenhuma");
+            }
+            catch { return ""; }
         }
 
         static void Zerar()

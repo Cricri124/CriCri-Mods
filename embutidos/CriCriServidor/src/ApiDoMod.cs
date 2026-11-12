@@ -35,6 +35,10 @@ namespace CriCriMods.Servidor
             if (caminho == null || !CaminhoValido.IsMatch(caminho) || caminho.Contains("..")) return r;
             var http = SalaApi.ClienteSeTiver();
             if (http == null || SalaApi.Esperando) return r;
+#pragma warning disable CS0162   // no celular PausaDaRecusa é a constante "false"
+            // (11/11) PC, chave recusada há menos de 5 min (ver SalaApi.Recusada): o mesmo 401, sem ir à rede
+            if (SalaApi.PausaDaRecusa) { r[0] = "401"; return r; }
+#pragma warning restore CS0162
             try
             {
                 using var pedido = new HttpRequestMessage(HttpMethod.Get, SalaApi.Site + caminho);
@@ -86,6 +90,9 @@ namespace CriCriMods.Servidor
             var http = SalaApi.ClienteSeTiver();
             if (http == null) return r;
             if (SalaApi.Esperando) { r[0] = "429"; return r; }
+#pragma warning disable CS0162
+            if (SalaApi.PausaDaRecusa) { r[0] = "401"; return r; }
+#pragma warning restore CS0162
             try
             {
                 using var pedido = new HttpRequestMessage(new HttpMethod(metodo), SalaApi.Site + caminho);

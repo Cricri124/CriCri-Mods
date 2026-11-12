@@ -74,23 +74,32 @@ namespace CriCriMods.Servidor
         {
             try
             {
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("CriCriMods-Servidor/" + Plugin.Versao);
+                // (11/11, revisão) o cliente sem chave de sempre (não segue redirecionamento, resposta com teto), e a resposta lida sem
+                // confiar no formato: campo que não é texto ou número caía numa exceção sem nome ("InvalidOperationException") no registro
+                using var http = SalaApi.ClienteSemChave();
                 using var r = await http.PostAsync(SalaApi.Site + "/api/mod/ligar/iniciar", Json("")).ConfigureAwait(false);
                 if ((int)r.StatusCode != 200) { Fim("o site nao liga agora: " + (int)r.StatusCode); return; }
                 using var doc = JsonDocument.Parse(await r.Content.ReadAsStringAsync().ConfigureAwait(false));
                 var raiz = doc.RootElement;
-                string id = raiz.GetProperty("id").GetString(), url = raiz.GetProperty("url").GetString();
+                if (raiz.ValueKind != JsonValueKind.Object) { Fim("resposta inesperada"); return; }
+                string id = TextoDe(raiz, "id"), url = TextoDe(raiz, "url");
                 var codigo = CodigoDaUrl.Match(url ?? "");
-                if (id == null || id.Length < 32 || !url.StartsWith(SalaApi.Site + "/conta/ligar?") || !codigo.Success) { Fim("resposta inesperada"); return; }
-                int expira = Math.Clamp(raiz.TryGetProperty("expiraEmSeg", out var e) && e.TryGetInt32(out int x) ? x : 600, 30, 900);
-                int intervalo = Math.Clamp(raiz.TryGetProperty("intervaloSeg", out var i) && i.TryGetInt32(out int y) ? y : 3, 2, 30);
+                if (id == null || id.Length < 32 || id.Length > 256 || url == null || !url.StartsWith(SalaApi.Site + "/conta/ligar?", StringComparison.Ordinal) || !codigo.Success) { Fim("resposta inesperada"); return; }
+                int expira = Math.Clamp(InteiroDe(raiz, "expiraEmSeg", 600), 30, 900);
+                int intervalo = Math.Clamp(InteiroDe(raiz, "intervaloSeg", 3), 2, 30);
                 string c = codigo.Groups[1].Value;
                 _fila.Enqueue(() => { if (minha == _vez) { _codigoDoLigar = c; TrocarLink(popup, link, c); } });
                 await Aguardar(http, id, expira, intervalo, minha).ConfigureAwait(false);
             }
             catch (Exception e) { Fim(e.GetType().Name); }
         }
+
+        static string TextoDe(JsonElement o, string campo) =>
+            o.TryGetProperty(campo, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+        // TryGetInt32 lança exceção quando o valor não é número (a mesma armadilha do painel de amigos, 08/11)
+        static int InteiroDe(JsonElement o, string campo, int padrao) =>
+            o.TryGetProperty(campo, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int n) ? n : padrao;
 
         void TrocarLink(DisconnectPopup popup, string link, string c)
         {
@@ -118,7 +127,8 @@ namespace CriCriMods.Servidor
                     if (status == 200)
                     {
                         using var doc = JsonDocument.Parse(await r.Content.ReadAsStringAsync().ConfigureAwait(false));
-                        string chave = doc.RootElement.GetProperty("chave").GetString();
+                        string chave = doc.RootElement.ValueKind == JsonValueKind.Object ? TextoDe(doc.RootElement, "chave") : null;
+                        if (!SalaApi.ChaveValida(chave)) { Fim("resposta inesperada"); return; }   // a chave só sai uma vez: perguntar de novo não adianta
                         _fila.Enqueue(() => Receber(chave));
                         return;
                     }
@@ -143,8 +153,7 @@ namespace CriCriMods.Servidor
         // POST without the key: {status, body}. Also for the in-game way of linking (AmigosCricriBr).
         internal static async Task<(int status, string corpo)> Postar(string rota, string json)
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("CriCriMods-Servidor/" + Plugin.Versao);
+            using var http = SalaApi.ClienteSemChave();
             using var r = await http.PostAsync(SalaApi.Site + rota, Json(json)).ConfigureAwait(false);
             int status = (int)r.StatusCode;
             return (status, status == 200 ? await r.Content.ReadAsStringAsync().ConfigureAwait(false) : null);
@@ -153,6 +162,9 @@ namespace CriCriMods.Servidor
         // Main thread only: starts using the key now and keeps it for the next launches.
         internal static bool Guardar(string chave)
         {
+            // (11/11, revisão) o que não tem cara de chave não entra em uso: o app (ChaveBr.limpar) já recusava guardar, mas o mod
+            // passava a usar nesta sessão e todo pedido falhava com "sem conexão"
+            if (!SalaApi.ChaveValida(chave)) { Plugin.Registro.LogWarning("[ligar] o servidor mandou uma chave fora do formato: nao usei"); return false; }
             SalaApi.TrocarChave(chave);
             try
             {

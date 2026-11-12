@@ -18,7 +18,7 @@ namespace CriCriMods
     public sealed class Plugin : BasePlugin
     {
         public const string Id = "br.com.cricribr.otimizacao";
-        public const string Versao = "0.5.0";
+        public const string Versao = "0.6.0";
         internal static BepInEx.Logging.ManualLogSource Registro;
 
         public override void Load()
@@ -31,7 +31,13 @@ namespace CriCriMods
             objeto.AddComponent<Otimizacao>();
 
             var h = new Harmony(Id);
-            Prender(h, typeof(AdsManager), "InitLevelPlay", prefixo: nameof(SemAnuncios));
+#if !OTIM_TESTE   // o build de teste roda no PC do dono: lá o jogo fica como é
+            // (11/11) Os anúncios só existem no celular. O tipo é procurado pelo nome para o mesmo código compilar
+            // contra o jogo do PC, que pode nem ter essa classe.
+            var anuncios = Plataforma.Pc ? null : AccessTools.TypeByName("AdsManager");
+            if (anuncios != null) Prender(h, anuncios, "InitLevelPlay", prefixo: nameof(SemAnuncios));
+            else if (!Plataforma.Pc) Log.LogWarning("[jogo] nao achei AdsManager");
+#endif
             Prender(h, typeof(OptionsMenuBehaviour), "Start", posfixo: nameof(DepoisDasOpcoes));
             Log.LogInfo("CriCri Mods jogo " + Versao + ": " + Opcoes.Atual.Descrever());
         }

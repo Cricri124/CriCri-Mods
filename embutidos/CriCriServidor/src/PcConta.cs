@@ -247,6 +247,7 @@ namespace CriCriMods.Servidor
                 _aviso = "";
                 _popup.SetActive(true);
                 Redesenhar();
+                Conferir();
                 Log.LogInfo("[conta] tela aberta, visivel=" + _popup.activeInHierarchy);
             }
             catch (Exception e) { Log.LogWarning("[conta] abrir: " + e.GetType().Name + ": " + e.Message); }
@@ -329,10 +330,35 @@ namespace CriCriMods.Servidor
         {
             bool tem = SalaApi.TemChave;
             Rotular(_botaoAcao, tem ? "APAGAR" : "COLAR");
-            string corpo = tem
-                ? "A chave da sua conta está guardada neste PC, só para este usuário do Windows."
-                : "Copie a chave da sua conta em cricribr.com.br (Minha conta) e clique em COLAR.";
+            // (11/11, ele: "menos texto") as duas frases ficaram curtas; "COLAR" e o caminho do site continuam iguais
+            // (11/11, achado no teste do PC) e a terceira é nova: com a chave recusada pelo servidor esta tela dizia "guardada" e
+            // nada no jogo explicava por que o painel e a aba do CRICRI BR não apareciam
+            string corpo = !tem ? "Copie a chave em cricribr.com.br (Minha conta) e clique em COLAR."
+                : SalaApi.ChaveRecusada ? "Chave recusada. Clique em APAGAR e cole outra."
+                : "Chave guardada neste PC.";
             _textoPopup.text = "Conta do CRICRI BR\n" + (string.IsNullOrEmpty(_aviso) ? corpo : _aviso);
+        }
+
+        // (11/11) Ao abrir a tela e logo depois de colar: uma pergunta ao servidor ("de quem é esta chave?", a mesma do painel de
+        // amigos) só para saber se a chave vale. Antes a pessoa colava uma chave velha, lia "Chave guardada" e só descobria que não
+        // valia dentro de uma sala. Sem resposta (sem internet) nada muda na tela. Com a recusa marcada há pouco, a resposta vem
+        // na hora, sem rede (SalaApi.Recusada).
+        bool _conferindo;
+
+        void Conferir()
+        {
+            if (!SalaApi.TemChave || _conferindo) return;
+            _conferindo = true;
+            string perguntada = SalaApi.ChaveDeAgora;
+            AmigosApi.Eu(r =>
+            {
+                _conferindo = false;
+                // (12/11, revisão) APAGAR e COLAR enquanto a pergunta da chave antiga estava no ar: a resposta é da antiga.
+                // Pergunta de novo, agora com a chave que está guardada (antes a tela dizia "Chave guardada" sem ter conferido).
+                if (!string.Equals(perguntada, SalaApi.ChaveDeAgora, StringComparison.Ordinal)) { Conferir(); return; }
+                if (r.Codigo == 401) _aviso = "";   // a frase da recusa vence o "Chave guardada." de quem acabou de colar
+                try { if (_popup != null && _popup.activeSelf && _botaoAcao != null) Redesenhar(); } catch (Exception) { }
+            });
         }
 
         // COLAR with no key, APAGAR with one, like the app's button. To replace a key: APAGAR, then COLAR.
@@ -341,7 +367,7 @@ namespace CriCriMods.Servidor
             try
             {
                 if (SalaApi.TemChave) ApagarChave();
-                else ColarChave();
+                else { ColarChave(); Conferir(); }
                 Redesenhar();
             }
             catch (Exception e) { Log.LogWarning("[conta] acao: " + e.GetType().Name); }
@@ -350,13 +376,13 @@ namespace CriCriMods.Servidor
         void ColarChave()
         {
             string lido = PcCofre.LerAreaDeTransferencia();
-            if (lido == null) { _aviso = "Não consegui ler o que você copiou. Tente de novo."; return; }
+            if (lido == null) { _aviso = "Não li o que você copiou. Tente de novo."; return; }
             string chave = PcCofre.Limpar(lido);
-            if (chave == null) { _aviso = "Isso não parece uma chave. Copie de novo em cricribr.com.br (Minha conta)."; return; }
-            if (!PcCofre.Salvar(chave)) { _aviso = "Não consegui guardar a chave neste PC."; Log.LogWarning("[conta] nao gravei a chave"); return; }
+            if (chave == null) { _aviso = "Isso não é uma chave. Copie de novo em cricribr.com.br (Minha conta)."; return; }
+            if (!PcCofre.Salvar(chave)) { _aviso = "Não deu para guardar a chave neste PC."; Log.LogWarning("[conta] nao gravei a chave"); return; }
             SalaApi.TrocarChave(chave);
             PcCofre.EsvaziarAreaDeTransferencia();
-            _aviso = "Chave guardada. O que você copiou foi limpo.";
+            _aviso = "Chave guardada.";
             Log.LogInfo("[conta] chave guardada");
         }
 

@@ -62,8 +62,8 @@ namespace CriCriMods.Servidor
         public static void Bloqueados(string etag, Action<Resposta> depois) => Get("amigos/bloqueados", etag, depois);
         public static void Convites(string etag, Action<Resposta> depois) => Get("convites", etag, depois);
 
-        public static void Buscar(string termo, Action<Resposta> depois) => Post("amigos/busca", Json("termo", termo), depois);
-        public static void PedirPorCodigo(string codigo, Action<Resposta> depois) => Post("amigos/pedir", Json("codigo", codigo), depois);
+        public static void Buscar(string termo, Action<Resposta> depois) => Post("amigos/busca", () => Json("termo", termo), depois);
+        public static void PedirPorCodigo(string codigo, Action<Resposta> depois) => Post("amigos/pedir", () => Json("codigo", codigo), depois);
 
         public static void Pedir(string id, Action<Resposta> depois) => ComId("amigos/", id, "/pedir", depois);
         public static void Remover(string id, Action<Resposta> depois) => ComId("amigos/", id, "/remover", depois);
@@ -79,28 +79,38 @@ namespace CriCriMods.Servidor
         static void ComId(string antes, string id, string depoisDoId, Action<Resposta> depois)
         {
             if (id == null || !IdValido.IsMatch(id)) { SalaApi.Respostas.Enqueue(() => depois(new Resposta())); return; }
-            Post(antes + id + depoisDoId, "{}", depois);
+            Post(antes + id + depoisDoId, CorpoVazio, depois);
         }
 
         static string Json(string campo, string valor) =>
             JsonSerializer.Serialize(new Dictionary<string, string> { [campo] = valor ?? "" });
 
-        static void Get(string caminho, string etag, Action<Resposta> depois) => Mandar(HttpMethod.Get, caminho, null, etag, depois);
-        static void Post(string caminho, string json, Action<Resposta> depois) => Mandar(HttpMethod.Post, caminho, json, null, depois);
+        static readonly Func<string> CorpoVazio = () => "{}";
 
-        static void Mandar(HttpMethod metodo, string caminho, string json, string etag, Action<Resposta> depois)
+        static void Get(string caminho, string etag, Action<Resposta> depois) => Mandar(HttpMethod.Get, caminho, null, etag, depois);
+        static void Post(string caminho, Func<string> json, Action<Resposta> depois) => Mandar(HttpMethod.Post, caminho, json, null, depois);
+
+        // (11/11, "tão falando que trava") Na linha do jogo fica só a pergunta barata (tem chave? está esperando um 429?). Criar o
+        // cliente HTTP e montar o JSON do corpo vão para a tarefa: a primeira vez de cada um custa dezenas de milissegundos num
+        // celular (o .NET carrega e prepara a rede e o System.Text.Json), e antes isso caía num quadro do menu ou do primeiro toque.
+        static void Mandar(HttpMethod metodo, string caminho, Func<string> json, string etag, Action<Resposta> depois)
         {
-            var http = SalaApi.ClienteSeTiver();
-            if (http == null || SalaApi.Esperando) { SalaApi.Respostas.Enqueue(() => depois(new Resposta())); return; }
+            if (!SalaApi.TemChave || SalaApi.Esperando) { SalaApi.Respostas.Enqueue(() => depois(new Resposta())); return; }
+#pragma warning disable CS0162   // no celular PausaDaRecusa é a constante "false"
+            // PC, chave recusada há menos de 5 min (ver SalaApi.Recusada): a mesma resposta, sem ir à rede
+            if (SalaApi.PausaDaRecusa) { SalaApi.Respostas.Enqueue(() => depois(new Resposta { Codigo = 401 })); return; }
+#pragma warning restore CS0162
             string usada = SalaApi.ChaveDeAgora;
             Task.Run(async () =>
             {
                 var l = new Resposta();
                 try
                 {
+                    var http = SalaApi.ClienteSeTiver();
+                    if (http == null) throw new InvalidOperationException();   // a chave saiu entre a pergunta e a tarefa: conta como sem conexão
                     using var pedido = new HttpRequestMessage(metodo, Base + caminho);
                     if (!string.IsNullOrEmpty(etag)) pedido.Headers.TryAddWithoutValidation("If-None-Match", etag);
-                    if (json != null) pedido.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                    if (json != null) pedido.Content = new StringContent(json(), Encoding.UTF8, "application/json");
                     using var r = await http.SendAsync(pedido).ConfigureAwait(false);
                     l.Codigo = (int)r.StatusCode;
                     l.Etag = r.Headers.ETag?.ToString();
@@ -145,6 +155,10 @@ namespace CriCriMods.Servidor
         // ---------------- reading the answers ----------------
 
         // `campo` is the array's name: "amigos", "pedidos", "resultados" or "bloqueados". A person missing an id is dropped: nothing could be done with it.
+        // (11/11, revisão) Cada pessoa vira uma linha com boneco vestido: a lista tem teto aqui, para uma resposta torta (ou enorme)
+        // não travar o painel.
+        internal const int MaximoDePessoas = 200;
+
         internal static Lista LerLista(string corpo, string campo)
         {
             var l = new Lista();
@@ -158,6 +172,9 @@ namespace CriCriMods.Servidor
                 if (raiz.TryGetProperty(campo, out var a) && a.ValueKind == JsonValueKind.Array)
                     foreach (var p in a.EnumerateArray())
                     {
+                        // (11/11, revisão) o servidor deixa bloquear até 500 pessoas: com o teto de 200 quem bloqueou mais não via nem
+                        // desbloqueava o resto (as linhas nascem aos poucos, então a lista comprida não trava mais)
+                        if (l.Pessoas.Count >= (campo == "bloqueados" ? 500 : MaximoDePessoas)) break;
                         var pessoa = LerPessoa(p);
                         if (pessoa != null) l.Pessoas.Add(pessoa);
                     }
@@ -174,7 +191,7 @@ namespace CriCriMods.Servidor
             var p = new Pessoa
             {
                 Id = id,
-                Nome = Texto(o, "nome"),
+                Nome = TextoPuro.De(Texto(o, "nome")),   // texto puro e curto já na chegada: nenhuma tela precisa lembrar de limpar
                 Estado = TextoOu(o, "estado", "offline"),
                 Situacao = TextoOu(o, "situacao", "nada"),
                 PodeEntrar = Sim(o, "podeEntrar"),
@@ -204,7 +221,9 @@ namespace CriCriMods.Servidor
                 {
                     string id = Texto(c, "id");
                     if (!IdValido.IsMatch(id)) continue;
-                    l.Add(new Convite { Id = id, De = Texto(c, "de"), ExpiraEmSeg = c.TryGetProperty("expiraEmSeg", out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out int s) ? s : 60 });
+                    // (11/11, revisão) nome limpo, e a validade entre 5 s e 2 min (o servidor usa 60 s): um número torto deixava a janela do convite na tela sem fim
+                    l.Add(new Convite { Id = id, De = TextoPuro.De(Texto(c, "de")), ExpiraEmSeg = Math.Clamp(c.TryGetProperty("expiraEmSeg", out var e) && e.ValueKind == JsonValueKind.Number && e.TryGetInt32(out int s) ? s : 60, 5, 120) });
+                    if (l.Count >= 20) break;
                 }
             }
             catch { }
@@ -212,7 +231,8 @@ namespace CriCriMods.Servidor
         }
 
         // "" or the game's own empty id both mean nothing; the game's ids are kept exactly as they came
-        static string SemVazio(string id, string vazio) => id.IndexOf(vazio, StringComparison.OrdinalIgnoreCase) >= 0 ? "" : id;
+        // (11/11, revisão) e um id do jogo é curto e sem espaço: o que não tem essa cara vira "nada" em vez de ir para o HatManager
+        static string SemVazio(string id, string vazio) => id.Length > 64 || id.IndexOf(' ') >= 0 || id.IndexOf(vazio, StringComparison.OrdinalIgnoreCase) >= 0 ? "" : id;
 
         static string Texto(JsonElement o, string nome) =>
             o.ValueKind == JsonValueKind.Object && o.TryGetProperty(nome, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
@@ -231,30 +251,32 @@ namespace CriCriMods.Servidor
         // The server's reasons for a 409; one it adds later reads as "not now".
         internal static string AvisoDoMotivo(string motivo) => motivo switch
         {
-            "sala" => "A sala não está mais disponível.",
+            "sala" => "Essa sala não está mais aberta.",
             "mesma-sala" => "Vocês já estão na mesma sala.",
-            "em-partida" => "Não dá durante uma partida.",
+            "em-partida" => "Não dá durante a partida.",
             "fora-do-lobby" => "Entre num lobby do CRICRI BR para convidar.",
-            "so-o-host" => "Só o dono da sala pode convidar.",
-            "gravacao" => "No modo gravação, entre primeiro num lobby do CRICRI BR.",
+            "so-o-host" => "Só o dono da sala convida.",
+            "gravacao" => "No modo gravação, entre antes num lobby do CRICRI BR.",
             "voce-bloqueou" => "Desbloqueie essa pessoa antes.",
             "cheio" => "Sua lista está cheia.",
-            "voce-mesmo" => "Esse é o seu próprio código.",
+            "voce-mesmo" => "Esse código é o seu.",
             _ => "Não deu agora.",
         };
 
         // What the player reads for an answer that was not a success. 403 stays neutral: never says whether it was a block or a refusal.
         internal static string Aviso(int codigo) => codigo switch
         {
-            0 => "Sem conexão com o servidor CRICRI BR agora.",
+            // (11/11, ele: "menos texto") frases curtas; o 401 é a mesma frase da aba da sala. No PC a antiga mandava "entrar numa sala
+            // para ligar neste aparelho", e no PC a chave se cola no CONTA BR.
+            0 => "Sem conexão com o CRICRI BR.",
             400 => "Digite de 2 a 10 letras.",
-            401 => "Sua conta foi ligada em outro aparelho. Entre numa sala do CRICRI BR para ligar neste.",
-            403 => "Não foi possível fazer isso.",
-            404 => "Não encontrei esse código.",
+            401 => SalaApi.Aviso(401),
+            403 => "Não deu para fazer isso.",
+            404 => "Não achei esse código.",
             409 => "Não deu agora.",
-            410 => "Isso não está mais disponível.",
-            429 => "Muitos pedidos seguidos. Espere um pouco.",
-            _ => "O servidor CRICRI BR não respondeu direito. Tente de novo.",
+            410 => "Isso não vale mais.",
+            429 => "Muitos pedidos. Espere um pouco.",
+            _ => "O CRICRI BR não respondeu. Tente de novo.",
         };
     }
 }

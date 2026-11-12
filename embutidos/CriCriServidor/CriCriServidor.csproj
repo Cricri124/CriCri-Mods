@@ -14,13 +14,21 @@
     <Nullable>disable</Nullable>
     <AssemblyName>CriCriServidor</AssemblyName>
     <RootNamespace>CriCriMods.Servidor</RootNamespace>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <DebugType>none</DebugType>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <InteropDir Condition="'$(InteropDir)' == ''">$(USERPROFILE)\Downloads\cricriqol\android\interop-celular-2026.11.3</InteropDir>
     <!-- BepInEx and Harmony come from the PC install (net6-compatible); a net6 plugin binds to the phone's at run time. -->
     <BepInExCore Condition="'$(BepInExCore)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Among Us\BepInEx\core</BepInExCore>
+    <!-- (11/11, revisao dos mods) As variantes saem pela constante passada em -p:DefineConstants=...:
+           AMIGOS_PUBLICO               a oficial do celular (ferramentas\mods-de-teste.js oficial)
+           CRICRI_PC%3BAMIGOS_PUBLICO   a do PC (src\PcPacote\PcMontarPacote.ps1)
+           AMIGOS_SERVIDOR_TESTE        o servidor de teste; AMIGOS_DE_MENTIRA  pessoas de mentira, so para ver a tela
+         Sem constante nenhuma (o comando do comentario la em cima) o projeto nao compilava mais: a aba da sala usa uma peca do
+         painel de amigos, que so existe com uma das constantes. Agora, sem nada na linha de comando, sai a oficial do celular.
+         Quem passa a constante continua recebendo exatamente o que pediu (o que vem da linha de comando vence esta linha). -->
+    <DefineConstants Condition="!$(DefineConstants.Contains('AMIGOS_'))">$(DefineConstants);AMIGOS_PUBLICO</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

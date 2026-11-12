@@ -64,23 +64,66 @@ namespace CriCriMods.Servidor
         float _conviteAte = -1f, _conviteEm = -1f;
         string _conviteDe;
 
+        // (11/11, ele: "uma ULTRA melhoria na otimização ... várias pessoas andando", "tão falando que trava") Este objeto roda em TODO
+        // quadro do jogo inteiro, partida incluída. Antes, a cada quadro, ele perguntava ao jogo o nome da cena e o nome da região
+        // (textos copiados do jogo para o .NET: lixo para o coletor) em até quatro lugares diferentes. Agora essas perguntas são feitas
+        // 4 vezes por segundo, num lugar só, e o resto do código lê a resposta guardada. Um quarto de segundo de atraso para notar
+        // que a pessoa trocou de região ou de cena não muda nada na tela.
+        static bool _ctxRegiao, _ctxMenu, _ctxOnline, _ctxTemLobby, _ctxPartida;
+        static string _ctxCena = "";
+        float _proxCtx, _pausaAte, _proxUi;
+        bool _vistoAberto;
+        static readonly HashSet<string> _errosVistos = new HashSet<string>();
+
+        void Contexto(float agora)
+        {
+            if (agora < _proxCtx) return;
+            _proxCtx = agora + 0.25f;
+            string cena = SceneManager.GetActiveScene().name;
+            if (cena != _ctxCena)
+            {
+                _ctxCena = cena;
+                // cena nova: a placa de pedidos pode existir aqui, a busca recomeça (ver AcharPlaca)
+                _esperaDaPlaca = 1f;
+                _varredurasSemFaixa = 0;
+                _proxVarreduraSemFaixa = 0f;
+                _proxBuscaDaPlaca = 0f;
+            }
+            _ctxMenu = cena == "MainMenu";
+            _ctxOnline = cena == "OnlineGame";
+            _ctxPartida = ShipStatus.Instance != null;
+            _ctxTemLobby = !_ctxPartida && LobbyBehaviour.Instance != null;
+            _ctxRegiao = RegiaoDeAgora();
+        }
+
         void Update()
         {
+            float agora = Time.unscaledTime;
+            if (agora < _pausaAte) return;
             try
             {
+                Contexto(agora);
                 TiqueConvite();
 #if AMIGOS_REAL
                 ConferirDono();
                 TiqueLigar();
 #endif
+                // Na partida não existe o botão de amizades: com o painel fechado, basta olhar 4 vezes por segundo se ele abriu.
+                if (_ctxPartida && !_vistoAberto)
+                {
+                    if (agora < _proxUi) return;
+                    _proxUi = agora + 0.25f;
+                }
                 var ui = FriendsListUI.Instance;
-                if (ui == null) { Esquecer(); return; }
+                if ((object)ui == null || ui == null) { if ((object)_ui != null || _montado) Esquecer(); _vistoAberto = false; return; }
                 if (_ui != ui) { Esquecer(); _ui = ui; }
-                bool regiao = NaRegiao(), aberto = ui.IsOpen;
+                bool regiao = _ctxRegiao, aberto = ui.IsOpen;
+                _vistoAberto = aberto;
 #if AMIGOS_REAL
                 if (!_rotaNoAr)
                 {
-                    if (regiao && (aberto || PlacaNaTela())) Sondar();
+                    // as perguntas baratas primeiro: a da placa atravessa para o jogo, e isto roda a cada quadro até a rota responder
+                    if (regiao && !_sondando && agora >= _proxSonda && SalaApi.TemChave && (aberto || PlacaNaTela())) Sondar();
                     return;
                 }
                 if (!aberto && regiao && !_doJogo) LerContagem();
@@ -110,7 +153,13 @@ namespace CriCriMods.Servidor
             catch (Exception e)
             {
                 _falhou = true;
-                Plugin.Registro.LogWarning("[amigos] " + e.GetType().Name + ": " + e.Message + "\n" + e.StackTrace);
+                // (11/11, revisão: "erros de compatibilidade") Um erro que se repete (uma peça do jogo que mudou de nome numa
+                // atualização, por exemplo) estourava de novo no quadro seguinte e escrevia o aviso inteiro, com a pilha, 60 vezes por
+                // segundo: o registro crescia sem parar e o jogo engasgava escrevendo no disco. Agora cada erro diferente é escrito
+                // uma vez, e depois de um erro este objeto descansa um segundo antes de tentar de novo.
+                _pausaAte = agora + 1f;
+                string qual = e.GetType().Name + ": " + e.Message;
+                if (_errosVistos.Count < 20 && _errosVistos.Add(qual)) Plugin.Registro.LogWarning("[amigos] " + qual + "\n" + e.StackTrace);
             }
         }
 
@@ -144,12 +193,42 @@ namespace CriCriMods.Servidor
             return false;
         }
 
+        // (11/11, ele: "tão falando que trava") A busca da placa varria TODOS os textos da cena (FindObjectsOfType<TextMeshPro>: centenas
+        // num lobby cheio, cada um com três idas ao jogo) uma vez por SEGUNDO, para sempre, em toda cena sem partida em que a placa não
+        // estivesse à vista: o lobby inteiro, e o menu de quem não tem pedido pendente (o jogo esconde a placa, e texto escondido não
+        // entra na varredura). Lido no código do jogo (NewRequestBanner.Update): a placa é do componente NewRequestBanner, que liga e
+        // desliga as peças activeBanner/inactiveBanner. Então: primeiro uma pergunta barata, "existe esse componente e ele está
+        // mostrando a placa?"; a varredura grande só roda quando a resposta é sim. Sem o componente na cena (o lobby), a varredura
+        // antiga ainda roda cinco vezes, cada vez mais espaçada (1, 2, 4, 8 e 16 s depois de entrar na cena), para o caso de alguma
+        // versão do jogo montar a placa de outro jeito; depois disso só a pergunta barata continua, de 2 em 2 s.
+        NewRequestBanner _faixa;
+        float _esperaDaPlaca = 1f, _proxVarreduraSemFaixa;
+        int _varredurasSemFaixa;
+
         void AcharPlaca()
         {
-            if (PlacaAchada || Time.unscaledTime < _proxBuscaDaPlaca || ShipStatus.Instance != null) return;
-            _proxBuscaDaPlaca = Time.unscaledTime + 1f;
+            float agora = Time.unscaledTime;
+            if (PlacaAchada || agora < _proxBuscaDaPlaca || _ctxPartida) return;
+            if ((object)_faixa == null || _faixa == null) _faixa = FindObjectOfType<NewRequestBanner>();
+            if (_faixa != null)
+            {
+                var ligada = _faixa.activeBanner;
+                var desligada = _faixa.inactiveBanner;
+                bool aVista = (ligada != null && ligada.activeInHierarchy) || (desligada != null && desligada.activeInHierarchy);
+                _proxBuscaDaPlaca = agora + 1f;
+                if (!aVista) return;   // o jogo está escondendo a placa: a varredura não acharia texto nenhum
+            }
+            else
+            {
+                _proxBuscaDaPlaca = agora + 2f;
+                if (_varredurasSemFaixa >= 5 || agora < _proxVarreduraSemFaixa) return;
+                _varredurasSemFaixa++;
+                _proxVarreduraSemFaixa = agora + _esperaDaPlaca;
+                _esperaDaPlaca *= 2f;
+            }
             _textosDaPlaca.Clear();
             _placaEscrita = null;
+            _placaNossa = false;   // placa nova: o texto do jogo é guardado de novo na primeira escrita
             foreach (var x in FindObjectsOfType<TextMeshPro>())
             {
                 var pai = x.transform.parent;
@@ -164,21 +243,34 @@ namespace CriCriMods.Servidor
             }
         }
 
+        // (11/11, otimização) O jogo reescreve esta placa a cada quadro (lido no NewRequestBanner.Update), por isso a nossa escrita
+        // também é por quadro, depois da dele (LateUpdate): isso fica. O que saiu: a cópia do texto do jogo a cada quadro para quem
+        // NÃO está na lista do CRICRI BR (era lida só para guardar), e a frase montada de novo a cada quadro (agora só quando um dos
+        // dois números muda).
+        string _placaQuero;
+        int _placaPedidos = -1, _placaOnline = -1;
+
         void Placa()
         {
             AcharPlaca();
             if (!PlacaAchada) return;
-            var primeiro = _textosDaPlaca[0];
-            if (primeiro.text != _placaEscrita) _placaDoJogo = primeiro.text;
 #if AMIGOS_REAL
-            bool nossa = _rotaNoAr && NaRegiao() && !_doJogo;
+            bool nossa = _rotaNoAr && _ctxRegiao && !_doJogo;
 #else
-            bool nossa = NaRegiao() && !_doJogo;
+            bool nossa = _ctxRegiao && !_doJogo;
             if (_online < 0) { _online = 5; _nPedidos = 2; }
 #endif
             if (nossa)
             {
-                string quero = "Pedidos: " + _nPedidos + "   Online: " + Math.Max(_online, 0);
+                if (!_placaNossa) _placaDoJogo = _textosDaPlaca[0].text;   // o texto do jogo, guardado na hora da troca
+                int online = Math.Max(_online, 0);
+                if (_placaQuero == null || _placaPedidos != _nPedidos || _placaOnline != online)
+                {
+                    _placaPedidos = _nPedidos;
+                    _placaOnline = online;
+                    _placaQuero = "Pedidos: " + _nPedidos + "   Online: " + online;
+                }
+                string quero = _placaQuero;
                 foreach (var t in _textosDaPlaca) if (t.text != quero) t.text = quero;
                 _placaEscrita = quero;
                 _placaNossa = true;
@@ -217,16 +309,52 @@ namespace CriCriMods.Servidor
             _pecasDoTema.Clear();
         }
 
-        static bool NaRegiao()
+        // A pergunta de verdade ao jogo: só o Contexto faz, 4 vezes por segundo.
+        static bool RegiaoDeAgora()
         {
             if (!DestroyableSingleton<ServerManager>.InstanceExists) return false;
             var r = DestroyableSingleton<ServerManager>.Instance.CurrentRegion;
             return r != null && r.Name == Regiao.Nome;
         }
 
+        // O que o resto do código lê: a resposta guardada.
+        static bool NaRegiao() => _ctxRegiao;
+
         // ---------------- building the panel ----------------
 
+        // (11/11, revisão: "erros de compatibilidade") O painel é montado com peças do painel do jogo, achadas pelo NOME ("Title",
+        // "MaskArea", "AUFriendsTab"...). Se uma atualização do jogo mudar um desses nomes, a montagem parava no meio com uma exceção e
+        // deixava as cópias já criadas (a lista vazia, as abas) ligadas POR CIMA do painel do jogo: nem o nosso nem o dele serviam.
+        // Agora uma montagem que falha desfaz o que criou, avisa uma vez no registro e o painel de amizades do jogo fica como é.
         void Montar()
+        {
+            try { MontarPecas(); }
+            catch (Exception e)
+            {
+                DesfazerMontagem();
+                Falhar("o painel do CRICRI BR nao foi montado (" + e.GetType().Name + ": " + e.Message + "); fica o painel do jogo");
+            }
+        }
+
+        void DesfazerMontagem()
+        {
+            try { if (_pecasDoTema.Count > 0) Tema(false); } catch (Exception) { }   // as cores do telefone do jogo voltam
+            try
+            {
+                if (_area != null) Destroy(_area);
+                if (_troca != null) Destroy(_troca);
+                for (int i = 0; i < _botoes.Length; i++)
+                {
+                    if (_botoes[i] != null) Destroy(_botoes[i]);
+                    _botoes[i] = null; _brilhos[i] = null; _rotulos[i] = null;
+                }
+            }
+            catch (Exception) { }
+            _area = null; _troca = null; _rol = null; _interno = null; _busca = null; _editar = null; _moldura = null;
+            _montado = false; _aqui = false;
+        }
+
+        void MontarPecas()
         {
             var ui = _ui;
             _abas = ui.transform.Find("Menu/Tabs");
@@ -345,13 +473,46 @@ namespace CriCriMods.Servidor
                 pintor.sortingLayerID = _brilhos[i].sortingLayerID;
                 pintor.sortingOrder = _brilhos[i].sortingOrder + 5;
             }
+            // (11/11, visto na foto do PC) A aba escolhida fica clara com letra escura, e a forma clara era a do ícone do jogo: mais
+            // estreita que as palavras. "BLOQUEADOS" e "PEDIDOS 2" passavam dos dois lados, e o que passava ficava letra escura em
+            // fundo escuro: lia-se "LOQUEADO" e "EDIDOS". Agora a forma clara tem a largura da casa da aba (todas iguais) e o rótulo
+            // que não cabe encolhe até caber (CaberNaAba).
+            _escalaDoRotulo[i] = rotulo.transform.localScale;
+            if (_brilhos[i] != null && _brilhos[i].sprite != null)
+            {
+                var forma = _brilhos[i].transform;
+                float atual = _brilhos[i].sprite.bounds.size.x * Mathf.Abs(forma.lossyScale.x), quero = LarguraDaAba * Mathf.Abs(_abas.lossyScale.x);
+                if (atual > 0.01f && quero > atual) forma.localScale = new Vector3(forma.localScale.x * quero / atual, forma.localScale.y, forma.localScale.z);
+            }
+            CaberNaAba(i);
             _botoes[i] = go;
+        }
+
+        // As abas ficam a 1,42 uma da outra (XDasAbas): a casa de cada uma tem 1,30, com um respiro entre elas e até a borda do painel.
+        const float LarguraDaAba = 1.30f;
+        readonly Vector3[] _escalaDoRotulo = new Vector3[4];
+
+        // O rótulo volta ao tamanho de sempre e, se a palavra for mais larga que a casa da aba, encolhe o que falta.
+        void CaberNaAba(int i)
+        {
+            var r = _rotulos[i];
+            if (r == null || _abas == null) return;
+            r.transform.localScale = _escalaDoRotulo[i];
+            float cabe = (LarguraDaAba - 0.14f) * Mathf.Abs(_abas.lossyScale.x);
+            float largura = r.GetPreferredValues(r.text).x * Mathf.Abs(r.transform.lossyScale.x);
+            if (largura > cabe && largura > 0.01f) r.transform.localScale = _escalaDoRotulo[i] * (cabe / largura);
         }
 
         // The game's box has no background of its own (phone 08/11): its pieces are centred on the place we want, with a frame behind them.
         void PosicionarCaixa(GameObject caixa)
         {
+            // (11/11, "demora muito pra carregar") As medições de 08/11 no celular (a árvore da caixa, cada peça do boneco, o toque
+            // na caixa) continuavam indo para o registro de todo jogador, a cada vez que o painel era montado. Agora só saem num
+            // build com AMIGOS_MEDIR. Os Medir(...) ficaram: ler o material de uma peça cria uma cópia dele, e a primeira linha da
+            // lista sempre foi desenhada assim; tirar mudaria uma coisa que funciona no celular sem poder conferir lá.
+#if AMIGOS_MEDIR
             Arvore(caixa.transform, 0);
+#endif
             var alvo = _area.transform.TransformPoint(1.36f, 0.02f, -12f);
             // phone 08/11: the box's text area came with the game's own anchor and the typed text landed in the corner
             var area = caixa.GetComponent<RectTransform>();
@@ -389,9 +550,10 @@ namespace CriCriMods.Servidor
 
         void FocarCaixa()
         {
-            Plugin.Registro.LogInfo("[amigos] toque na caixa");
             _caixa.GiveFocus();
+#if AMIGOS_MEDIR
             Plugin.Registro.LogInfo("[amigos] caixa com foco=" + _caixa.hasFocus + " teclado=" + (_caixa.keyboard != null));
+#endif
         }
 
         static void Medir(string quem, Renderer r)
@@ -404,6 +566,7 @@ namespace CriCriMods.Servidor
             Plugin.Registro.LogInfo("[amigos] material " + quem + ": " + m.shader.name + " fila=" + m.renderQueue + v + " tipo=" + r.GetIl2CppType().Name);
         }
 
+#if AMIGOS_MEDIR
         static void Arvore(Transform t, int nivel)
         {
             var nomes = new List<string>();
@@ -412,6 +575,7 @@ namespace CriCriMods.Servidor
             Plugin.Registro.LogInfo("[amigos] caixa " + new string(' ', nivel * 2) + t.name + (t.gameObject.activeSelf ? "" : " (off)") + " @" + p.x.ToString("0.00") + "," + p.y.ToString("0.00") + " [" + string.Join(",", nomes) + "]");
             if (nivel < 3) for (int i = 0; i < t.childCount; i++) Arvore(t.GetChild(i), nivel + 1);
         }
+#endif
 
         TextMeshPro TextoNovo(GameObject titulo, string nome, Vector3 pos, float escala)
         {
@@ -501,10 +665,22 @@ namespace CriCriMods.Servidor
             if (_caixa.placeholderText != null) _caixa.placeholderText.text = "Nick ou nome#1234";
             if (aba == BUSCAR) _resultados = new List<Pessoa>();
             _proxLeitura = 0f;
-            Desenhar();
+            Desenhar(true);
         }
 
-        void Desenhar()
+        // (11/11, ele: "tão falando que trava") Duas coisas mudaram no desenho da lista.
+        // 1. As linhas nascem só quando vão aparecer. Antes o Desenhar criava TODAS de uma vez: cada pessoa é uma cópia da barra do
+        //    jogo, mais um boneco vestido (chapéu, roupa e visor carregados), mais o recorte, o selo, o nível e os botões. Com 30
+        //    amigos eram 30 bonecos montados num quadro só, a cada vez que a lista era desenhada (abrir, trocar de aba, e toda
+        //    leitura em que um amigo entrou ou saiu), para mostrar 4. Agora o Desenhar só marca os lugares; o CortarLinhas, que já
+        //    rodava a cada quadro para esconder a linha que sai da janela, cria a linha quando ela chega perto da janela (as da
+        //    primeira tela na hora, as outras até 2 por quadro enquanto a pessoa rola).
+        // 2. A lista não volta mais para o topo sozinha. Antes todo Desenhar rolava para o topo: quem estava no meio da lista era
+        //    jogado para cima sempre que um amigo mudava de estado, e depois de cada convite ou aviso. Agora só vai para o topo ao
+        //    trocar de aba, abrir o painel e chegar uma busca nova (doTopo).
+        List<Pessoa> _listaDesenhada;
+
+        void Desenhar(bool doTopo = false)
         {
             foreach (var l in _linhas) if (l != null) Destroy(l);
             _linhas.Clear();
@@ -514,7 +690,11 @@ namespace CriCriMods.Servidor
 #if !AMIGOS_REAL
             _nPedidos = _pedidos.Count;
 #endif
-            if (_rotulos[PEDIDOS] != null) _rotulos[PEDIDOS].text = _nPedidos > 0 ? "Pedidos " + (_nPedidos > 9 ? "9+" : _nPedidos.ToString()) : "Pedidos";
+            if (_rotulos[PEDIDOS] != null)
+            {
+                string rotulo = _nPedidos > 0 ? "Pedidos " + (_nPedidos > 9 ? "9+" : _nPedidos.ToString()) : "Pedidos";
+                if (_rotulos[PEDIDOS].text != rotulo) { _rotulos[PEDIDOS].text = rotulo; CaberNaAba(PEDIDOS); }   // com o número a palavra cresce
+            }
             _titulo.color = Color.white;
             _sub.color = Claro;
             _vazio.color = Claro;
@@ -524,8 +704,10 @@ namespace CriCriMods.Servidor
             List<Pessoa> lista;
             switch (_aba)
             {
-                case AMIGOS: lista = _amigos; sub = online + " online agora"; vazio = "Você ainda não tem amigos aqui."; break;
-                case PEDIDOS: lista = _pedidos; sub = online + " amigos online agora · " + _pedidos.Count + (_pedidos.Count == 1 ? " pedido" : " pedidos"); vazio = "Nenhum pedido novo."; break;
+                // (11/11, ele: "menos texto") mais curto, e sem o ponto do meio (·): a fonte do jogo no celular só tem as letras do
+                // teclado e os acentos do português, o resto sai como quadradinho
+                case AMIGOS: lista = _amigos; sub = online + " online"; vazio = "Você ainda não tem amigos aqui."; break;
+                case PEDIDOS: lista = _pedidos; sub = online + " online - " + _pedidos.Count + (_pedidos.Count == 1 ? " pedido" : " pedidos"); vazio = "Nenhum pedido novo."; break;
                 case BUSCAR: lista = _resultados; vazio = _aviso != "" ? _aviso : "Digite o nick ou o código da pessoa."; break;
                 case BLOQUEADOS: lista = _bloqueados; vazio = "Ninguém bloqueado."; break;
                 default: lista = new List<Pessoa>(); break;
@@ -536,15 +718,24 @@ namespace CriCriMods.Servidor
 #endif
             _sub.text = sub;
             _vazio.text = lista.Count == 0 ? vazio : "";
-            for (int i = 0; i < lista.Count; i++) _linhas.Add(Linha(lista[i], i));
+            _listaDesenhada = lista;
+            for (int i = 0; i < lista.Count; i++) _linhas.Add(null);   // o lugar de cada pessoa; a linha nasce no CortarLinhas
             _rol.ContentYBounds.min = 0f;
             _rol.ContentYBounds.max = Mathf.Max(0f, (lista.Count - 4) * _ui.YOffset);
-            _rol.ScrollToTop();
+            if (doTopo) _rol.ScrollToTop();
+            else
+            {
+                // a lista pode ter encolhido: a rolagem fica onde estava, mas dentro do que existe
+                var p = _interno.localPosition;
+                float y = Mathf.Clamp(p.y, _rol.ContentYBounds.min, _rol.ContentYBounds.max);
+                if (y != p.y) _interno.localPosition = new Vector3(p.x, y, p.z);
+            }
+            CortarLinhas(true);   // as linhas da janela nascem agora, no mesmo quadro: a lista aparece inteira, como antes
         }
 
-        void Avisar(string texto)
+        void Avisar(string texto, bool doTopo = false)
         {
-            texto = texto.Replace("<", "‹").Replace("\\", "/").Replace("[", "(");   // it may carry a person's name
+            texto = TextoPuro.De(texto, 120);   // it may carry a person's name
             if (!_montado || _area == null || !_area.activeInHierarchy)
             {
                 if (DestroyableSingleton<DisconnectPopup>.InstanceExists) DestroyableSingleton<DisconnectPopup>.Instance.ShowCustom(texto);
@@ -552,13 +743,17 @@ namespace CriCriMods.Servidor
             }
             _aviso = texto;
             _avisoAte = Time.unscaledTime + 3f;
-            Desenhar();
+            Desenhar(doTopo);
         }
+
+        // a barra que a Linha() está montando agora: se ela falhar no meio, quem chamou destrói (fora de qualquer #if: vale em todo build)
+        GameObject _linhaEmMontagem;
 
         GameObject Linha(Pessoa a, int i)
         {
             var barra = Instantiate(_ui.OnlineFriendBar, _interno);
             var go = barra.gameObject;
+            _linhaEmMontagem = go;   // (12/11, revisão) se o resto falhar, quem chamou destrói esta barra meio montada
             go.name = "CriCriBrLinha" + i;
             var nome = barra.SenderName;
             var convidar = barra.LobbyInviteButton;
@@ -585,10 +780,10 @@ namespace CriCriMods.Servidor
             convidar.gameObject.SetActive(false);
 
             string linha2 = LinhaDois(a);
-            nome.text = a.Nome.Replace("<", "‹").Replace("\\", "/").Replace("[", "(") + (linha2 != "" ? "\n<size=70%><color=#" + ColorUtility.ToHtmlStringRGB(CorDoTexto(a)) + ">" + linha2 + "</color></size>" : "");
+            nome.text = TextoPuro.De(a.Nome) + (linha2 != "" ? "\n<size=70%><color=#" + ColorUtility.ToHtmlStringRGB(CorDoTexto(a)) + ">" + linha2 + "</color></size>" : "");
             var n = nome.transform.localPosition;
             nome.transform.localPosition = new Vector3(n.x + 0.1f, n.y, n.z);
-            Boneco(go.transform, a);
+            Boneco(go.transform, a, i);
             if (a.Selo != null) DesenharSelo(go.transform, nome, a);
             if (a.Nivel.HasValue) DesenharNivel(go.transform, nome, a.Nivel.Value);
 
@@ -675,7 +870,7 @@ namespace CriCriMods.Servidor
         }
 
         // The person's skin: a copy of the account tab's player, dressed from the ids the server keeps.
-        void Boneco(Transform linha, Pessoa a)
+        void Boneco(Transform linha, Pessoa a, int i)
         {
             if (!DestroyableSingleton<AccountManager>.InstanceExists) return;
             var tab = DestroyableSingleton<AccountManager>.Instance.accountTab;
@@ -702,7 +897,7 @@ namespace CriCriMods.Servidor
                 camada.SetPetVisible(false);
                 camada.SetMaskType(PlayerMaterial.MaskType.ScrollingUI);   // phone 08/11: with None the copy only showed outside the list's mask
             }
-            p.SetMaskLayer(RecortarLinha(linha));
+            p.SetMaskLayer(RecortarLinha(linha, i));
             // phone 08/11: drawn behind the row's white background
             var fundo = linha.Find("Background").GetComponent<SpriteRenderer>();
             foreach (var r in p.GetComponentsInChildren<Renderer>(true))
@@ -718,12 +913,14 @@ namespace CriCriMods.Servidor
                 var mascaraDoPainel = _ui.transform.Find("Menu/Tab Contents/FriendsListMask");
                 if (mascaraDoPainel != null) Medir("mascara do painel", mascaraDoPainel.GetComponent<Renderer>());
                 foreach (var r in p.GetComponentsInChildren<Renderer>(false)) if (r.name == "Normal") Medir("corpo", r);
+#if AMIGOS_MEDIR
                 Plugin.Registro.LogInfo("[amigos] boneco: ativo=" + p.gameObject.activeInHierarchy + " pos=" + p.transform.position + " camada=" + p.gameObject.layer + " linha=" + linha.gameObject.layer);
                 foreach (var r in p.GetComponentsInChildren<Renderer>(true))
                 {
                     var sp = r.TryCast<SpriteRenderer>();
                     Plugin.Registro.LogInfo("[amigos] boneco peca " + r.name + " ativo=" + r.gameObject.activeInHierarchy + " ligado=" + r.enabled + " ordem=" + r.sortingOrder + " z=" + r.transform.position.z.ToString("0.0") + (sp != null ? " sprite=" + (sp.sprite != null ? sp.sprite.name : "NENHUM") + " cor=" + sp.color + " mascara=" + sp.maskInteraction : "") + " tamanho=" + r.bounds.size);
                 }
+#endif
             }
         }
 
@@ -733,10 +930,11 @@ namespace CriCriMods.Servidor
         // Rows next to each other need different layers, or a skin also draws inside the row below it (phone 08/11).
         const int CamadaDoBoneco = 60, CamadaDaLista = 51, RecortesDiferentes = 8;
         readonly Material[] _recortes = new Material[RecortesDiferentes];
-        int _recorteDaVez;
 
         // Returns the layer the row's skin has to use.
-        int RecortarLinha(Transform linha)
+        // (11/11) A camada sai do NÚMERO da linha, não mais da ordem em que as linhas foram criadas: agora elas nascem conforme a
+        // pessoa rola (ver Desenhar), fora de ordem, e duas vizinhas não podem cair na mesma camada.
+        int RecortarLinha(Transform linha, int i)
         {
             var fundo = linha.Find("Background").GetComponent<SpriteRenderer>();
             var modelo = _area.transform.Find("MaskArea");
@@ -752,8 +950,7 @@ namespace CriCriMods.Servidor
             var sr = go.GetComponent<SpriteRenderer>();
             Vector3 quero = fundo.bounds.size, tem = sr.bounds.size, e = go.transform.localScale;
             go.transform.localScale = new Vector3(e.x * quero.x / tem.x, e.y * quero.y / tem.y, e.z);
-            int vez = _recorteDaVez;
-            _recorteDaVez = (vez + 1) % RecortesDiferentes;
+            int vez = ((i % RecortesDiferentes) + RecortesDiferentes) % RecortesDiferentes;
             int camada = CamadaDoBoneco + vez;
             if (_recortes[vez] == null)
             {
@@ -816,7 +1013,7 @@ namespace CriCriMods.Servidor
         // game's fonts have no check mark (phone 08/11: it came out as a letter V).
         void DesenharSelo(Transform linha, TextMeshPro nome, Pessoa a)
         {
-            float largura = nome.GetPreferredValues(a.Nome.Replace("<", "‹").Replace("\\", "/").Replace("[", "(")).x;
+            float largura = nome.GetPreferredValues(TextoPuro.De(a.Nome)).x;
             var n = nome.transform.localPosition;
             var go = new GameObject("CriCriBrSelo");
             go.layer = linha.gameObject.layer;
@@ -830,10 +1027,30 @@ namespace CriCriMods.Servidor
             sr.sortingOrder = fundo.sortingOrder + 12;
         }
 
+        // (11/11, revisão) Cada combinação de cores vira uma textura que fica guardada até fechar o jogo. As cores vêm do servidor: o
+        // que não tem cara de cor (#RRGGBB) vira o selo padrão, e passando de 48 combinações diferentes as novas usam o padrão também,
+        // para a memória não crescer sem teto (num celular com pouca memória é ela que derruba o jogo).
+        const int MaximoDeSelos = 48;
+
+        static bool CorValida(string c)
+        {
+            if (c == null || c.Length != 7 || c[0] != '#') return false;
+            for (int i = 1; i < 7; i++) if (!Uri.IsHexDigit(c[i])) return false;
+            return true;
+        }
+
         static Sprite SpriteDoSelo(Selo selo)
         {
-            string chave = selo.Nivel + selo.Bola + selo.V;
+            bool ouro = selo.Nivel == "ouro", disco = selo.Nivel == "disco";
+            string nivel = ouro ? "ouro" : disco ? "disco" : "verificado";
+            string chave = nivel + selo.Bola + selo.V;
             if (_selos.TryGetValue(chave, out var pronto) && pronto != null) return pronto;
+            if (!CorValida(selo.Bola) || !CorValida(selo.V) || _selos.Count >= MaximoDeSelos)
+            {
+                selo = new Selo { Nivel = nivel, Bola = ouro ? "#F2C94C" : "#2F80ED", V = ouro ? "#3A2A00" : "#FFFFFF" };
+                chave = nivel + selo.Bola + selo.V;
+                if (_selos.TryGetValue(chave, out pronto) && pronto != null) return pronto;
+            }
             const int N = 96;
             ColorUtility.TryParseHtmlString(selo.Bola, out var bola);
             ColorUtility.TryParseHtmlString(selo.V, out var marca);
@@ -870,16 +1087,44 @@ namespace CriCriMods.Servidor
         }
 
         // Phone test 08/11: text and copied buttons ignore the panel's mask. A row leaves as a whole before it touches the header or the frame.
-        void CortarLinhas()
+        // (11/11) E é aqui que a linha nasce (ver Desenhar). A altura de cada linha sai de uma conta (a linha i fica a i passos da
+        // primeira, dentro da peça que rola), sem perguntar a posição de cada uma ao jogo: com a lista comprida eram duas idas ao
+        // jogo por linha, por quadro, o painel aberto inteiro.
+        void CortarLinhas(bool todasDaJanela = false)
         {
-            if (_mascara == null || _area == null) return;
-            float metade = _ui.YOffset * _interno.lossyScale.y * 0.42f;
+            if (_mascara == null || _area == null || _interno == null) return;
+            float escala = _interno.lossyScale.y, passo = _ui.YOffset * escala, metade = passo * 0.42f;
             float topo = _area.transform.TransformPoint(0f, -0.33f, 0f).y, fundo = _mascara.bounds.min.y;
-            foreach (var go in _linhas)
+            float primeira = _interno.position.y + _ui.YStart * escala;
+            if (Mathf.Abs(passo) < 0.0001f) return;   // painel ainda sem tamanho (abrindo): com passo zero todas as linhas cairiam "na janela"
+            int novas = 0;
+            for (int i = 0; i < _linhas.Count; i++)
             {
-                if (go == null) continue;
-                float y = go.transform.position.y;
+                float y = primeira - i * passo;
                 bool dentro = y + metade <= topo && y - metade >= fundo;
+                var go = _linhas[i];
+                if ((object)go == null)
+                {
+                    // nasce com uma linha de folga para cima e para baixo, para já estar vestida quando entrar na janela
+                    bool perto = y + metade <= topo + passo && y - metade >= fundo - passo;
+                    // nunca mais de 8 de uma vez (a janela mostra 4 ou 5): o resto nasce nos quadros seguintes
+                    if (!perto || novas >= (todasDaJanela ? 8 : 2) || _listaDesenhada == null || i >= _listaDesenhada.Count) continue;
+                    novas++;
+                    try { go = Linha(_listaDesenhada[i], i); _linhaEmMontagem = null; }
+                    catch (Exception e)
+                    {
+                        // (12/11, revisão) a barra que ficou pela metade sai: ela era filha da lista, fora de _linhas, e nunca mais
+                        // era escondida nem destruída (cada redesenho somava outra)
+                        if (_linhaEmMontagem != null) { try { Destroy(_linhaEmMontagem); } catch { } _linhaEmMontagem = null; }
+                        // uma pessoa com um dado que o jogo não aceita não derruba a lista: o lugar dela fica vazio e as outras aparecem
+                        go = new GameObject("CriCriBrLinhaVazia");
+                        go.transform.SetParent(_interno, false);
+                        string qual = "linha: " + e.GetType().Name + ": " + e.Message;
+                        if (_errosVistos.Count < 20 && _errosVistos.Add(qual)) Plugin.Registro.LogWarning("[amigos] " + qual + "\n" + e.StackTrace);
+                    }
+                    _linhas[i] = go;
+                }
+                else if (go == null) continue;   // destruída pelo jogo (troca de cena)
                 if (go.activeSelf != dentro) go.SetActive(dentro);
             }
         }
@@ -944,6 +1189,11 @@ namespace CriCriMods.Servidor
             _amigos.Add(Com(P("Amiga no lobby", 4, "lobby"), true, true));
             _amigos.Add(P("Amigo offline", 5, "offline"));
             _amigos.Add(P("Amiga offline", 6, "offline"));
+#if AMIGOS_MUITOS
+            // (11/11) só para o teste da lista comprida no PC: mais 40 pessoas de mentira
+            for (int k = 0; k < 40; k++)
+                _amigos.Add(Com(P("Amigo " + (k + 8), 14 + k, k % 3 == 0 ? "lobby" : k % 3 == 1 ? "online" : "offline", k % 5 == 0 ? verificado : null), k % 3 == 0, k % 2 == 0));
+#endif
             _pedidos.Add(P("Pedido um", 7, "offline", verificado));
             _pedidos.Add(P("Pedido dois", 8, "offline"));
             _bloqueados.Add(P("Pessoa bloqueada", 9, "offline"));
@@ -963,7 +1213,7 @@ namespace CriCriMods.Servidor
             if (termo.Contains("#"))   // a friend code: the request goes straight, same box as the search
             {
                 _resultados = new List<Pessoa>();
-                _aviso = "Pedido enviado para " + termo.Replace("<", "‹").Replace("\\", "/").Replace("[", "(") + ".";
+                _aviso = "Pedido enviado para " + TextoPuro.De(termo) + ".";
                 Desenhar();
                 return;
             }
@@ -974,7 +1224,7 @@ namespace CriCriMods.Servidor
             _resultados = _amigos.Concat(_pedidos).Concat(_outros)
                 .Where(a => a.Nome.IndexOf(termo, StringComparison.OrdinalIgnoreCase) >= 0)
                 .OrderBy(a => a.Selo == null ? 1 : 0).Take(10).ToList();
-            Desenhar();
+            Desenhar(true);
         }
 
         void Entrar(Pessoa a)
@@ -1076,7 +1326,7 @@ namespace CriCriMods.Servidor
             {
                 if (r.Codigo != 200) { _resultados = new List<Pessoa>(); Avisar(AmigosApi.Aviso(r)); return; }
                 _resultados = AmigosApi.LerLista(r.Corpo, "resultados").Pessoas;
-                Avisar("Ninguém encontrado.");
+                Avisar("Ninguém encontrado.", true);   // busca nova: a lista começa do topo
             });
         }
 
@@ -1129,12 +1379,11 @@ namespace CriCriMods.Servidor
         // ---------------- the invite pop-up ----------------
 
         // Only in the menu with the CRICRI BR region chosen, or in a CRICRI BR lobby (the rule agreed with the server session).
-        static bool PodeMostrarConvite()
-        {
-            if (!NaRegiao()) return false;
-            if (SceneManager.GetActiveScene().name == "MainMenu") return true;
-            return LobbyBehaviour.Instance != null && ShipStatus.Instance == null;
-        }
+        // (11/11, otimização) Lido do contexto guardado (4 vezes por segundo): antes esta pergunta ia ao jogo a cada quadro, a partida
+        // inteira, sempre que não havia uma leitura de convites marcada (na partida, em outra região, sem chave).
+        static bool PodeMostrarConvite() => _ctxRegiao && (_ctxMenu || _ctxTemLobby);
+
+        int _conviteSegundos = -1;
 
         void TiqueConvite()
         {
@@ -1150,13 +1399,21 @@ namespace CriCriMods.Servidor
 #endif
             if (_conviteAte < 0f) return;
             if (agora >= _conviteAte || !PodeMostrarConvite()) { FecharConvite(); return; }
-            if (_textoPopup != null) _textoPopup.text = _conviteDe.Replace("<", "‹").Replace("\\", "/").Replace("[", "(") + " chamou você para a sala.\nQuer entrar?\n<size=70%>" + Mathf.CeilToInt(_conviteAte - agora) + " s</size>";
+            // (11/11, otimização) o texto só é trocado quando o segundo muda: antes era escrito a cada quadro, e cada escrita faz o
+            // jogo desenhar as letras de novo (60 vezes por segundo, durante o minuto inteiro do convite)
+            int segundos = Mathf.CeilToInt(_conviteAte - agora);
+            if (_textoPopup != null && segundos != _conviteSegundos)
+            {
+                _conviteSegundos = segundos;
+                _textoPopup.text = TextoPuro.De(_conviteDe) + " chamou você para a sala.\nQuer entrar?\n<size=70%>" + segundos + " s</size>";
+            }
         }
 
         void MostrarConvite(int segundos)
         {
             if (_popup == null && !MontarPopup()) { Plugin.Registro.LogWarning("[amigos] sem o pop-up do jogo pra copiar"); return; }
             _conviteAte = Time.unscaledTime + segundos;
+            _conviteSegundos = -1;
             _popup.SetActive(true);
         }
 
@@ -1234,16 +1491,25 @@ namespace CriCriMods.Servidor
         string _ligarId, _ligarCodigo;
         readonly HashSet<string> _codigosRecusados = new HashSet<string>();
 
+        float _proxCodigoDeAmigo;
+
+        // (11/11, otimização) Isto roda a cada quadro do jogo inteiro. As perguntas que não custam nada vêm primeiro (já tem chave?
+        // já perguntou?), e "estou num lobby do CRICRI BR?" vem do contexto guardado. Antes o nome da cena era pedido ao jogo a cada
+        // quadro, com chave ou sem; e quem joga sem conta (não tem código de amigo) pagava duas idas ao jogo por quadro o lobby inteiro,
+        // esperando um código que nunca chega: agora essa espera olha uma vez por segundo.
         void TiqueLigar()
         {
-            bool noLobby = SceneManager.GetActiveScene().name == "OnlineGame" && LobbyBehaviour.Instance != null && ShipStatus.Instance == null && NaRegiao();
             if (_ligando == Ligando.EsperandoCodigo) { OlharChat(); return; }
-            if (_perguntouLigar || _ligando != Ligando.Nada || SalaApi.TemChave || Time.unscaledTime < _proxPergunta) return;
+            if (_perguntouLigar || _ligando != Ligando.Nada || SalaApi.TemChave) return;
+            float agora = Time.unscaledTime;
+            if (agora < _proxPergunta) return;
+            bool noLobby = _ctxOnline && _ctxTemLobby && _ctxRegiao;
             if (!noLobby) { _noLobbyDesde = -1f; return; }
-            if (_noLobbyDesde < 0f) { _noLobbyDesde = Time.unscaledTime; return; }
-            if (Time.unscaledTime - _noLobbyDesde < 4f) return;
+            if (_noLobbyDesde < 0f) { _noLobbyDesde = agora; return; }
+            if (agora - _noLobbyDesde < 4f || agora < _proxCodigoDeAmigo) return;
             if (!DestroyableSingleton<EOSManager>.InstanceExists || string.IsNullOrEmpty(DestroyableSingleton<EOSManager>.Instance.FriendCode))
             {
+                _proxCodigoDeAmigo = agora + 1f;
                 if (!_avisouSemCodigo) { _avisouSemCodigo = true; Plugin.Registro.LogInfo("[ligar] esperando o jogo ter o codigo de amigo"); }
                 return;
             }
@@ -1273,21 +1539,31 @@ namespace CriCriMods.Servidor
             if (aviso != null) AvisoLigar(aviso);
         }
 
-        static async void Chamar(string rota, string json, Action<int, string> depois)
+        // (11/11, "tão falando que trava") O pedido inteiro sai da linha do jogo: montar o JSON (a função `json`) e abrir a conexão.
+        // Antes o começo de tudo rodava no quadro do lobby em que a conta ia ligar: a primeira vez do System.Text.Json e da rede do
+        // .NET num celular custa dezenas de milissegundos, bem na "primeira sala". A resposta volta pela fila de sempre.
+        static void Chamar(string rota, Func<string> json, Action<int, string> depois)
         {
-            int status = 0; string corpo = null;
-            try { (status, corpo) = await LigarNaVerificacao.Postar(rota, json).ConfigureAwait(false); }
-            catch (Exception) { }
-            SalaApi.Respostas.Enqueue(() => depois(status, corpo));
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                int status = 0; string corpo = null;
+                try { (status, corpo) = await LigarNaVerificacao.Postar(rota, json()).ConfigureAwait(false); }
+                catch (Exception) { }
+                SalaApi.Respostas.Enqueue(() => depois(status, corpo));
+            });
         }
 
+        // (11/11, revisão: "resposta torta") `raiz` sai como CÓPIA (o documento é devolvido na hora, antes ficava preso), e uma
+        // resposta que não é um objeto JSON conta como "sem o campo" em vez de lançar exceção.
         static bool LerJson(string corpo, string campo, out System.Text.Json.JsonElement raiz, out string valor)
         {
             raiz = default;
             valor = null;
             try
             {
-                raiz = System.Text.Json.JsonDocument.Parse(corpo).RootElement;
+                using var doc = System.Text.Json.JsonDocument.Parse(corpo);
+                if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object) return false;
+                raiz = doc.RootElement.Clone();
                 if (raiz.TryGetProperty(campo, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String) valor = v.GetString();
             }
             catch (Exception) { }
@@ -1300,7 +1576,7 @@ namespace CriCriMods.Servidor
 #if CRICRI_PC
             // Linking from the PC only starts once the server keeps one key per device: before that it would switch off the key of the phone. This comes before
             // "iniciar" because iniciar already puts the private line with the code in the chat.
-            Chamar("/api/mod/ligar/aparelhos", "{}", (status, _) =>
+            Chamar("/api/mod/ligar/aparelhos", () => "{}", (status, _) =>
             {
                 if (status != 200) { Plugin.Registro.LogInfo("[ligar] servidor ainda sem chave por aparelho: " + status); FimLigar(null); return; }
                 IniciarLigar();
@@ -1314,11 +1590,15 @@ namespace CriCriMods.Servidor
         {
             // The server finds the proven connection in this room on the caller's network: the player id picks it (friend codes and names can change; CriCri, 09/11),
             // the name is for a server that does not read the id yet. Claiming another id gains nothing: the one-time code only goes to that connection. Never logged.
-            string corpo = System.Text.Json.JsonSerializer.Serialize(new
+            // os três valores são lidos do jogo AQUI, na linha do jogo; o JSON é montado depois, na tarefa do pedido (ver Chamar)
+            string codigoDaSala = InnerNet.GameCode.IntToGameName(AmongUsClient.Instance.GameId);
+            string puid = MeuPuid();
+            string nick = AmongUs.Data.DataManager.Player.Customization.Name;
+            Func<string> corpo = () => System.Text.Json.JsonSerializer.Serialize(new
             {
-                codigoDaSala = InnerNet.GameCode.IntToGameName(AmongUsClient.Instance.GameId),
-                puid = MeuPuid(),
-                nick = AmongUs.Data.DataManager.Player.Customization.Name,
+                codigoDaSala,
+                puid,
+                nick,
 #if CRICRI_PC
                 aparelho = "pc",
 #endif
@@ -1329,7 +1609,9 @@ namespace CriCriMods.Servidor
                 if (status != 200 || resposta == null) { NaoLigouAgora("pelo jogo", status); return; }
                 if (!LerJson(resposta, "id", out var raiz, out _ligarId)) { NaoLigouAgora("resposta sem id", status); return; }
                 _ligarCodigo = null;
-                _ligarAte = Time.unscaledTime + Math.Clamp(raiz.TryGetProperty("expiraEmSeg", out var e) && e.TryGetInt32(out int x) ? x : 300, 30, 600);
+                // (11/11, revisão) TryGetInt32 lança exceção se o valor não for número: a exceção escapava daqui com o estado em
+                // "Iniciando" e a conta não tentava ligar de novo até fechar o jogo
+                _ligarAte = Time.unscaledTime + Math.Clamp(raiz.TryGetProperty("expiraEmSeg", out var e) && e.ValueKind == System.Text.Json.JsonValueKind.Number && e.TryGetInt32(out int x) ? x : 300, 30, 600);
                 _ligando = Ligando.EsperandoCodigo;
                 _codigosRecusados.Clear();
                 _podeResgatar = true;   // CriCri, 09/11: no question at all, even when this replaces the key of another device
@@ -1365,12 +1647,13 @@ namespace CriCriMods.Servidor
         {
             if (!_podeResgatar || _ligarCodigo == null || _ligando != Ligando.EsperandoCodigo) return;
             _ligando = Ligando.Resgatando;
-            string corpo = System.Text.Json.JsonSerializer.Serialize(new { id = _ligarId, codigo = _ligarCodigo });
-            Chamar("/api/mod/ligar/pelo-jogo/resgatar", corpo, (status, resposta) =>
+            string id = _ligarId, codigo = _ligarCodigo;
+            Chamar("/api/mod/ligar/pelo-jogo/resgatar", () => System.Text.Json.JsonSerializer.Serialize(new { id, codigo }), (status, resposta) =>
             {
                 if (status == 0 || status == 429) { _ligando = Ligando.EsperandoCodigo; _retentarEm = Time.unscaledTime + (status == 0 ? 5f : 30f); return; }   // the request is still good
                 if (status == 403 && _codigosRecusados.Count < 3) { _codigosRecusados.Add(_ligarCodigo); _ligarCodigo = null; _ligando = Ligando.EsperandoCodigo; return; }
-                if (status != 200 || resposta == null || !LerJson(resposta, "chave", out _, out var chave)) { NaoLigouAgora("resgatar", status); return; }
+                // uma chave fora do formato conta como "não ligou" (antes o aviso dizia "ligada até fechar o jogo" e nada funcionava)
+                if (status != 200 || resposta == null || !LerJson(resposta, "chave", out _, out var chave) || !SalaApi.ChaveValida(chave)) { NaoLigouAgora("resgatar", status); return; }
                 bool guardou = LigarNaVerificacao.Guardar(chave);
                 _proxLeitura = 0f;
                 FimLigar(guardou ? "Conta do CRICRI BR ligada." : "Conta do CRICRI BR ligada até fechar o jogo.");
@@ -1383,6 +1666,7 @@ namespace CriCriMods.Servidor
         // Only to prevent that mistake: the server decides what a key can do. The comparison is by the account's id, which never changes, so on the phone there is no
         // question: the wrong key is not used and the first lobby links the right account over it. No answer, 404 or no hash = nothing to compare.
         bool _donoConferido;
+        string _chaveDoDono;            // a chave com que a conferência de dono foi feita
         float _proxDono;
         GameObject _popupDono;
 
@@ -1407,18 +1691,23 @@ namespace CriCriMods.Servidor
 
         void ConferirDono()
         {
+            // (12/11, revisão) Chave trocada no meio da sessão (no PC: APAGAR e COLAR outra, que pode ser de OUTRA conta): a conferência
+            // vale de novo. Antes ela só voltava a falso sem resposta do servidor, e a chave nova era usada sem o aviso "esta chave é
+            // de outra conta" até fechar o jogo.
+            if (_donoConferido && !string.Equals(_chaveDoDono, SalaApi.ChaveDeAgora, StringComparison.Ordinal)) _donoConferido = false;
             if (_donoConferido || !SalaApi.TemChave || Time.unscaledTime < _proxDono) return;
             _proxDono = Time.unscaledTime + 2f;
-            if (SceneManager.GetActiveScene().name != "MainMenu" || !NaRegiao()) return;
+            if (!_ctxMenu || !_ctxRegiao) return;
             string meu = MeuPuid();
             if (string.IsNullOrEmpty(meu)) return;
             _donoConferido = true;
+            _chaveDoDono = SalaApi.ChaveDeAgora;
             AmigosApi.Eu(r =>
             {
                 if (r.Codigo == 0) { _donoConferido = false; _proxDono = Time.unscaledTime + 60f; return; }
                 if (r.Codigo != 200 || string.IsNullOrEmpty(r.Corpo)) return;
-                using var doc = System.Text.Json.JsonDocument.Parse(r.Corpo);
-                var raiz = doc.RootElement;
+                // (11/11, revisão) uma resposta que não é um objeto JSON é "nada a comparar", como o comentário acima já prometia
+                if (!LerJson(r.Corpo, "contaSha256", out var raiz, out _)) return;
                 if (!raiz.TryGetProperty("contaSha256", out var c) || c.ValueKind != System.Text.Json.JsonValueKind.String) return;   // the API never returns the id itself, only this hash
                 if (string.Equals(c.GetString(), Sha256DaConta(meu), StringComparison.OrdinalIgnoreCase)) return;
 #if !CRICRI_PC
@@ -1430,7 +1719,7 @@ namespace CriCriMods.Servidor
                 _popupDono = NovoPopup("CriCriBrContaDiferente", "USAR", FecharDono, "NÃO USAR", () => { FecharDono(); NaoUsarChave(); }, out var texto);
                 if (_popupDono == null) return;
                 string minha = AmongUs.Data.DataManager.Player.Customization.Name ?? "";
-                texto.text = "Esta chave é da conta " + nick.Replace("<", "‹").Replace("\\", "/").Replace("[", "(") + ".\nVocê entrou no jogo com " + minha.Replace("<", "‹").Replace("\\", "/").Replace("[", "(") + ".\nUsar mesmo assim?";
+                texto.text = "Esta chave é da conta " + TextoPuro.De(nick) + ".\nVocê entrou no jogo com " + TextoPuro.De(minha) + ".\nUsar mesmo assim?";
                 _popupDono.SetActive(true);
 #endif
             });
