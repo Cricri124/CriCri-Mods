@@ -88,12 +88,13 @@ public class PessoaUsandoTest {
         Activity tela = app.get();
         assertTrue("o guia aparece na primeira vez", Guia.aberto(tela));
 
-        String[] passos = {"guia-1-jogo", "guia-2-conta", "guia-3-mods", "guia-4-jogar"};
+        // app-telas (11/11, ele: "menos texto, menos complexidade"): o guia passou de quatro passos para dois (conta opcional; JOGAR)
+        String[] passos = {"guia-1-conta", "guia-2-jogar"};
         for (int i = 0; i < passos.length; i++) {
             esperar(400);
             foto(tela.getWindow().getDecorView(), passos[i]);
-            assertTrue("o guia diz em que passo está", temTexto(tela.getWindow().getDecorView(), (i + 1) + " de 4"));
-            Button botao = acharBotao(tela.getWindow().getDecorView(), i < 3 ? "Próximo" : "Entendi");
+            assertTrue("o guia diz em que passo está", temTexto(tela.getWindow().getDecorView(), (i + 1) + " de " + passos.length));
+            Button botao = acharBotao(tela.getWindow().getDecorView(), i < passos.length - 1 ? "Próximo" : "Entendi");
             assertNotNull("o botão do passo " + (i + 1) + " existe", botao);
             botao.performClick();
         }
@@ -346,7 +347,7 @@ public class PessoaUsandoTest {
         assertTrue(lista.getChildCount() >= 4);
         View replay = lista.getChildAt(0);
         assertEquals("CriCri Replay", ((TextView) replay.findViewById(R.id.mod_name)).getText().toString());
-        assertEquals("CriCri · v1.8.0", ((TextView) replay.findViewById(R.id.mod_autor)).getText().toString());
+        assertEquals("CriCri · v1.8.1", ((TextView) replay.findViewById(R.id.mod_autor)).getText().toString());
         linha(lista, "Servidor CRICRI BR");
         // the ones that are part of the app: no switch, "Sempre ligado"
         View otimizacao = linha(lista, "Otimização");
@@ -359,7 +360,7 @@ public class PessoaUsandoTest {
         Dialog folha = tela.ultimaFolha;
         assertNotNull(folha);
         assertTrue(folha.isShowing());
-        assertEquals("por CriCri · versão 1.8.0", ((TextView) folha.findViewById(R.id.sheet_autor)).getText().toString());
+        assertEquals("por CriCri · versão 1.8.1", ((TextView) folha.findViewById(R.id.sheet_autor)).getText().toString());
         assertTrue(((LinearLayout) folha.findViewById(R.id.sheet_itens)).getChildCount() >= 3);
         assertTrue(temTexto(folha.getWindow().getDecorView(), "Replays"));
         assertTrue(temTexto(folha.getWindow().getDecorView(), "Conferido no Among Us 2026.11.3"));

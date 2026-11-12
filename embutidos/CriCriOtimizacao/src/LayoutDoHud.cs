@@ -371,6 +371,12 @@ namespace CriCriMods
             // a lista de tarefas: o lugar que o jogo pôs neste quadro e o que eu pus
             public Vector3 ListaDoJogo, ListaPosta;
             public bool MexiNaLista;
+            // (12/11 noite) o que se pergunta ao jogo todo quadro, guardado uma vez (cada pergunta criava um objeto na memória)
+            public Transform T, Pai;
+            public AspectPosition Ap;
+            public TaskPanelBehaviour Tp;
+            public bool Guardou;
+            public float ProxChave;
         }
 
         static readonly Dictionary<IntPtr, Base> _bases = new Dictionary<IntPtr, Base>();
@@ -397,11 +403,13 @@ namespace CriCriMods
                 // HUD novo (cena nova): o que foi guardado do HUD antigo não vale mais
                 _hud = h.Pointer;
                 _bases.Clear(); _corDoJogo.Clear(); _corPosta.Clear(); _desenhos.Clear(); _tinhaMudanca.Clear(); _comOpacidade.Clear();
+                _objetosDaPeca.Clear(); _extrasDaPeca.Clear();
                 Escuro.Esquecer();
             }
             float agora = Time.unscaledTime;
             bool renovarDesenhos = agora >= _proxDesenhos;
             if (renovarDesenhos) { _proxDesenhos = agora + 2f; _desenhos.Clear(); }
+            if (agora >= _proxObjetos) { _proxObjetos = agora + 0.5f; _objetosDaPeca.Clear(); _extrasDaPeca.Clear(); }
 
             foreach (var peca in Pecas)
             {
@@ -409,7 +417,7 @@ namespace CriCriMods
                 bool muda = it != null && !it.Padrao;
                 if (!muda && !_tinhaMudanca.Contains(peca.Chave)) continue;
                 List<GameObject> objs;
-                try { objs = peca.Objetos(h); }
+                try { objs = ObjetosDe(peca, h); }
                 catch { continue; }
                 int visual = muda ? it.Visual : 0;
                 foreach (var go in objs)
@@ -432,7 +440,7 @@ namespace CriCriMods
                 }
                 if (peca.Extras != null)
                 {
-                    try { foreach (var go in peca.Extras(h)) if (go != null) Escuro.Por(go, visual == 1); }
+                    try { foreach (var go in ExtrasDe(peca, h)) if (go != null) Escuro.Por(go, visual == 1); }
                     catch (Exception e)
                     {
                         string q = peca.Chave + "extras" + e.GetType().Name;
@@ -455,13 +463,41 @@ namespace CriCriMods
         {
             IntPtr p = go.Pointer;
             if (!_bases.TryGetValue(p, out var b)) { b = new Base(); _bases[p] = b; }
+            if (!b.Guardou)
+            {
+                b.Guardou = true;
+                b.T = go.transform;
+                b.Pai = b.T.parent;
+                b.Ap = go.GetComponent<AspectPosition>();
+                b.Tp = go.GetComponent<TaskPanelBehaviour>();
+            }
             return b;
+        }
+
+        /* (12/11 noite, medido no PC: o HUD do mod fazia lixo todo quadro, e cada coleta é uma travadinha no celular) A lista de
+           objetos de cada peça é guardada por meio segundo (e esquecida a cada HUD novo): perguntar ao jogo "h.MapButton",
+           ".gameObject" cria um objeto novo na memória a cada vez. A reunião (que nasce e some) é perguntada todo quadro. */
+        static readonly Dictionary<string, List<GameObject>> _objetosDaPeca = new Dictionary<string, List<GameObject>>();
+        static readonly Dictionary<string, List<GameObject>> _extrasDaPeca = new Dictionary<string, List<GameObject>>();
+        static float _proxObjetos;
+
+        static List<GameObject> ObjetosDe(Peca p, HudManager h)
+        {
+            if (p.SoVisual) return p.Objetos(h);
+            if (!_objetosDaPeca.TryGetValue(p.Chave, out var l)) { l = p.Objetos(h) ?? new List<GameObject>(); _objetosDaPeca[p.Chave] = l; }
+            return l;
+        }
+
+        static List<GameObject> ExtrasDe(Peca p, HudManager h)
+        {
+            if (!_extrasDaPeca.TryGetValue(p.Chave, out var l)) { l = p.Extras(h) ?? new List<GameObject>(); _extrasDaPeca[p.Chave] = l; }
+            return l;
         }
 
         static void Por(GameObject go, ItemDoHud it, Camera cam, Peca peca)
         {
-            var t = go.transform;
             var b = BaseDe(go);
+            var t = b.T;
 
             // o tamanho: o que o jogo pôs (se ele mudou desde a última vez, vale o dele) vezes o da pessoa
             var atual = t.localScale;
@@ -504,13 +540,13 @@ namespace CriCriMods
         static void PorLugar(GameObject go, ItemDoHud it, Camera cam, Base b)
         {
             var alvo = Mundo(it, cam);
-            var ap = go.GetComponent<AspectPosition>();
+            var ap = b.Ap;
             if (ap != null && ap.enabled)
             {
                 // pela distância da borda do próprio jogo (ver o comentário do topo), com a conta no espaço do pai
                 if (!b.MexiNaDistancia) { b.DistanciaDoJogo = ap.DistanceFromEdge; b.MexiNaDistancia = true; }
                 Calibrar(ap, b);
-                var alvoLocal = NoPai(ap.transform, new Vector3(alvo.x, alvo.y, ap.transform.position.z));
+                var alvoLocal = NoPai(b.Pai, new Vector3(alvo.x, alvo.y, b.T.position.z));
                 var d = b.DistRef;
                 if (Math.Abs(b.Inclinacao.x) > 0.0001f) d.x = b.DistRef.x + (alvoLocal.x - b.LugarRef.x) / b.Inclinacao.x;
                 if (Math.Abs(b.Inclinacao.y) > 0.0001f) d.y = b.DistRef.y + (alvoLocal.y - b.LugarRef.y) / b.Inclinacao.y;
@@ -523,13 +559,13 @@ namespace CriCriMods
                 Conferir(go, it, b, alvo);
                 return;
             }
-            var t = go.transform;
+            var t = b.T;
             var p = t.position;
             if (Math.Abs(p.x - alvo.x) > 0.0005f || Math.Abs(p.y - alvo.y) > 0.0005f) t.position = new Vector3(alvo.x, alvo.y, p.z);
             b.MexiNoLugar = true;
         }
 
-        static Vector3 NoPai(Transform t, Vector3 mundo) => t.parent != null ? t.parent.InverseTransformPoint(mundo) : mundo;
+        static Vector3 NoPai(Transform pai, Vector3 mundo) => pai != null ? pai.InverseTransformPoint(mundo) : mundo;
 
         /* A REDE DE SEGURANÇA (12/11, ele ficou preso: o botão das Definições saiu da tela e não dava para voltar ao padrão).
            Se um botão movido fica mais de 1 s longe de onde devia aparecer, a conta é refeita; se nem assim (3 vezes seguidas),
@@ -537,7 +573,7 @@ namespace CriCriMods
         static void Conferir(GameObject go, ItemDoHud it, Base b, Vector2 alvo)
         {
             if (!go.activeInHierarchy) { b.ForaDoLugar = 0f; return; }
-            var p = go.transform.position;
+            var p = b.T.position;
             float dx = p.x - alvo.x, dy = p.y - alvo.y;
             if (dx * dx + dy * dy < 0.6f * 0.6f) { b.ForaDoLugar = 0f; b.Recalibrou = 0; return; }
             b.ForaDoLugar += Time.unscaledDeltaTime;
@@ -555,15 +591,21 @@ namespace CriCriMods
         // espaço do pai do botão (que anda junto com a câmera)
         static void Calibrar(AspectPosition ap, Base b)
         {
+            bool calibrado = b.ChaveDaCalibracao != 0 && (b.Inclinacao.x != 0f || b.Inclinacao.y != 0f);
+            float agora = Time.unscaledTime;
+            if (calibrado && agora < b.ProxChave) return;   // a tela e a câmera são conferidas 1 vez por segundo, não todo quadro
+            b.ProxChave = agora + 1f;
             int chave = Screen.width * 31 + Screen.height;
             try { var c = ap.parentCam != null ? ap.parentCam : Camera.main; if (c != null) chave = chave * 31 + (int)(c.orthographicSize * 100f); } catch { }
-            if (b.ChaveDaCalibracao == chave && (b.Inclinacao.x != 0f || b.Inclinacao.y != 0f)) return;
+            if (chave == 0) chave = 1;
+            if (calibrado && b.ChaveDaCalibracao == chave) return;
             var antes = ap.DistanceFromEdge;
             var d0 = b.DistanciaDoJogo;
-            var t = ap.transform;
-            ap.DistanceFromEdge = d0; ap.AdjustPosition(); var p0 = NoPai(t, t.position);
-            ap.DistanceFromEdge = d0 + new Vector3(1f, 0f, 0f); ap.AdjustPosition(); var px = NoPai(t, t.position);
-            ap.DistanceFromEdge = d0 + new Vector3(0f, 1f, 0f); ap.AdjustPosition(); var py = NoPai(t, t.position);
+            var t = b.T ?? ap.transform;
+            var pai = b.T != null ? b.Pai : t.parent;
+            ap.DistanceFromEdge = d0; ap.AdjustPosition(); var p0 = NoPai(pai, t.position);
+            ap.DistanceFromEdge = d0 + new Vector3(1f, 0f, 0f); ap.AdjustPosition(); var px = NoPai(pai, t.position);
+            ap.DistanceFromEdge = d0 + new Vector3(0f, 1f, 0f); ap.AdjustPosition(); var py = NoPai(pai, t.position);
             ap.DistanceFromEdge = antes; ap.AdjustPosition();
             b.DistRef = d0;
             b.LugarRef = p0;
@@ -577,8 +619,8 @@ namespace CriCriMods
         // ela anda na medida em que está aberta: fechada, a aba fica na beirada esquerda, como no jogo.
         static void PorDeslocamento(GameObject go, ItemDoHud it, Base b)
         {
-            var tp = go.GetComponent<TaskPanelBehaviour>();
-            var t = go.transform;
+            var tp = b.Tp;
+            var t = b.T;
             var agora = t.localPosition;
             // o que está lá não é o que eu pus: foi o jogo que pôs, é a base nova
             if (!b.MexiNaLista || (agora - b.ListaPosta).sqrMagnitude > 0.0000001f) b.ListaDoJogo = agora;
@@ -586,7 +628,7 @@ namespace CriCriMods
             float dx = it.Movido ? it.X : 0f, dy = it.Movido ? it.Y : 0f;
             float aberta = tp != null ? Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(tp.timer)) : 1f;
             var d = new Vector3(dx * aberta, dy, 0f);
-            if (t.parent != null) d = t.parent.InverseTransformVector(d);
+            if (b.Pai != null) d = b.Pai.InverseTransformVector(d);
             var novo = new Vector3(b.ListaDoJogo.x + d.x, b.ListaDoJogo.y + d.y, b.ListaDoJogo.z);
             if ((agora - novo).sqrMagnitude > 0.0000001f) t.localPosition = novo;
             b.ListaPosta = t.localPosition;

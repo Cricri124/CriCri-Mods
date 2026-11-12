@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: the mark in the game's place while Among Us is not installed (drawn for this app): an arrow into a tray,
+     "to download". Same tile as the mods' icons; it replaced Android's default robot icon, which looked like an error. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <path
+        android:fillColor="@color/cricri_tile"
+        android:pathData="M12,0h24a12,12 0,0 1,12 12v24a12,12 0,0 1,-12 12h-24a12,12 0,0 1,-12 -12v-24a12,12 0,0 1,12 -12z" />
+    <path
+        android:pathData="M24,12.5V28.5M17,22L24,29L31,22M14.5,35.5H33.5"
+        android:strokeWidth="2.6"
+        android:strokeColor="@color/mod_padrao"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

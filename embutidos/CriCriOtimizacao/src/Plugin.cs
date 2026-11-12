@@ -18,7 +18,7 @@ namespace CriCriMods
     public sealed class Plugin : BasePlugin
     {
         public const string Id = "br.com.cricribr.otimizacao";
-        public const string Versao = "0.6.0";
+        public const string Versao = "0.6.1";
         internal static BepInEx.Logging.ManualLogSource Registro;
 
         public override void Load()

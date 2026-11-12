@@ -27,20 +27,29 @@ public class JniBridge {
 
             view.setVisibility(enabled ? View.VISIBLE : View.GONE);
             Log.i(TAG, "Set loading state to "+enabled);
+            // CriCri Mods: o fim da abertura medida (o aviso "Carregando" some quando o BepInEx termina e o jogo aparece)
+            if (!enabled) Abertura.carregadorSumiu();
 
             if (!enabled && timerRunnable != null) {
                 handler.removeCallbacks(timerRunnable);
             }
+            // (11/11, app-telas) o relógio parou: se o aviso voltar, a frase entra como nova
+            if (!enabled) dev.allofus.fusioncore.EsperaDoJogo.sumiu(view);
         });
     }
 
-    public static void SetLoadingText(Activity activity, String text) {
+    public static void SetLoadingText(Activity activity, String original) {
         activity.runOnUiThread(() -> {
             TextView view = activity.findViewById(R.id.loadingText);
             if (view == null) {
                 Log.e(TAG, "Could not set loading text, view is null!");
                 return;
             }
+
+            // CriCri Mods (11/11, app-telas): o BepInEx manda o texto em inglês de programador ("Running Chainloader..."), e era isso que a
+            // pessoa lia na espera mais longa. EsperaDoJogo dá a frase em português; null = a mesma frase já está na tela (o relógio segue).
+            final String text = dev.allofus.fusioncore.EsperaDoJogo.frase(view, original);
+            if (text == null) return;
 
             view.setText(text);
             Log.i(TAG, "Set loading text to "+text);

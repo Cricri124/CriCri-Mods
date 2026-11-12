@@ -86,9 +86,10 @@
         <data android:mimeType="text/plain" />
       </intent-filter>
     </activity>
+    <!-- (11/11, app-telas) the app's theme, not the plain Material one: the "Não deu pra abrir" window had its button in the default purple -->
     <activity
         android:name="dev.allofus.fusioncore.BootstrapActivity"
-        android:theme="@style/Theme.Material3.Dark.NoActionBar"
+        android:theme="@style/Theme.CriCriMods"
         android:screenOrientation="locked"
         android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|fontScale|layoutDirection|density"
         android:launchMode="singleTask"

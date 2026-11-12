@@ -4,6 +4,11 @@
   <!-- CriCri Mods: the accent is reserved for the one primary action (JOGAR) and selected states. -->
   <color name="cricri_accent">#FF5A36</color>
   <color name="cricri_accent_suave">#33FF5A36</color>
+  <!-- (11/11, ele: "design mais bonito e amigável, menos complexidade") text you can tap that is NOT the main action: a pale tone of the
+       accent, so the saturated orange stays with JOGAR alone. On the page background the contrast is about 11:1. -->
+  <color name="cricri_link">#FFB8A3</color>
+  <!-- the calm tile behind the account's initial and the "no game" mark: the same neutral as the hairlines, one step up -->
+  <color name="cricri_tile">#322E37</color>
   <color name="cricri_warning">#FFC34D</color>
   <color name="cricri_ok">#6FD08C</color>
   <color name="cricri_erro">#FF8A80</color>

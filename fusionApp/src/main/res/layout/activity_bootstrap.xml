@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- CriCri Mods: the wait between JOGAR and the game. What is happening, in the words of the home screen ("Abrindo o Among Us"
+     and, under it, the step the app is on), with the app's orange on the spinner and on the bar (the activity uses the plain
+     Material theme, whose purple showed here). The bar and its numbers appear only while a piece is downloaded and sit
+     together, under the text. The ids are the ones BootstrapActivity fills (bootstrap_status = the step's name). -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/bootstrap_root"
     android:layout_width="match_parent"
@@ -6,31 +10,21 @@
     android:orientation="vertical"
     android:gravity="center"
     android:background="?android:attr/colorBackground"
-    android:padding="24dp">
+    android:padding="32dp">
 
     <ProgressBar
         android:id="@+id/bootstrap_progress"
         style="?android:attr/progressBarStyleLarge"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:indeterminate="true" />
-
-    <ProgressBar
-        android:id="@+id/bootstrap_download_progress"
-        style="?android:attr/progressBarStyleHorizontal"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:max="100"
-        android:indeterminate="false"
-        android:progress="0"
-        android:visibility="gone" />
+        android:layout_width="56dp"
+        android:layout_height="56dp"
+        android:indeterminate="true"
+        android:indeterminateTint="@color/cricri_accent" />
 
     <TextView
         android:id="@+id/bootstrap_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="24dp"
         android:gravity="center"
         android:text="@string/bootstrap_title"
         android:textColor="?android:attr/textColorPrimary"
@@ -41,11 +35,25 @@
         android:id="@+id/bootstrap_status"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="6dp"
         android:gravity="center"
         android:text="@string/bootstrap_status_preparing"
         android:textColor="?android:attr/textColorSecondary"
-        android:textSize="14sp" />
+        android:textSize="15sp" />
+
+    <ProgressBar
+        android:id="@+id/bootstrap_download_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:max="100"
+        android:indeterminate="false"
+        android:indeterminateTint="@color/cricri_accent"
+        android:progress="0"
+        android:progressBackgroundTint="@color/cricri_linha"
+        android:progressTint="@color/cricri_accent"
+        android:visibility="gone" />
 
     <TextView
         android:id="@+id/bootstrap_progress_details"
@@ -54,8 +62,7 @@
         android:layout_marginTop="6dp"
         android:gravity="center"
         android:textColor="?android:attr/textColorSecondary"
-        android:textSize="12sp"
+        android:textSize="13sp"
         android:visibility="gone" />
 
 </LinearLayout>
-

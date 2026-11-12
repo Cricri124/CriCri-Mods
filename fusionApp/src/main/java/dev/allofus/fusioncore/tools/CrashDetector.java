@@ -56,7 +56,13 @@ public class CrashDetector {
         }
     }
 
-    private static void setupUncaughtExceptionHandler(Context context) {
+    // (12/11) Uma vez por processo: o init agora é chamado também pela BootstrapActivity (o Android pode recriar o processo direto nela,
+    // sem passar pela tela inicial, e aí um erro de Java não deixava arquivo nenhum). Ligado duas vezes, gravaria dois arquivos por queda.
+    private static boolean handlerInstalado;
+
+    private static synchronized void setupUncaughtExceptionHandler(Context context) {
+        if (handlerInstalado) return;
+        handlerInstalado = true;
         Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
 
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {

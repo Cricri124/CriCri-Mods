@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using Il2CppInterop.Runtime;
 using TMPro;
 using UnityEngine;
 
@@ -35,6 +37,7 @@ namespace CriCriMods
         {
             public SpriteRenderer Sr;
             public Sprite DoJogo, Posta;
+            public IntPtr PostaPtr;           // o endereço da imagem que está no desenho (comparar sem criar objeto)
             public bool Decidido;
             public Color CorVista;            // a cor que o jogo tinha posto quando decidi (se ela muda, decido de novo)
             public bool PeloTom;              // clara mas sem cópia (não deu para copiar): escurecida pela cor
@@ -55,12 +58,20 @@ namespace CriCriMods
             public readonly List<Texto_> Textos = new List<Texto_>();
             public readonly HashSet<IntPtr> Conhecidos = new HashSet<IntPtr>();
             public float ProximaBusca;
+            public int Quadro;
+            public bool EstavaAtiva;
+            public int ContaDesenhos = -1, ContaTextos = -1;
+            public float ProximaCompleta;
         }
 
         static readonly Dictionary<IntPtr, Raiz> _raizes = new Dictionary<IntPtr, Raiz>();
         static readonly Color TextoClaro = new Color(0.92f, 0.93f, 0.95f, 1f);
         static readonly Color TomEscuro = new Color(0.16f, 0.18f, 0.22f, 1f);
         static int _avisos, _anotadas;
+#if OTIM_TESTE
+        internal static long TesteTrocas, TesteBuscas, TesteOlhados, TesteBytesBusca;
+        internal static string TesteQuemTroca = "";
+#endif
 
         /// <summary>Todo quadro, para cada coisa com o visual escuro (ligado) ou que já teve (desligado: devolve).</summary>
         internal static void Por(GameObject go, bool escuro)
@@ -78,21 +89,36 @@ namespace CriCriMods
             if (r == null) { r = new Raiz { Go = go }; _raizes[p] = r; }
             // (12/11, celular: "meu jogo fica travando") escondida (o chat fechado, a notificação apagada): não faz nada. No
             // quadro em que ela aparece, tudo é posto aqui no LateUpdate, antes do desenho: não pisca branco.
-            if (!go.activeInHierarchy) return;
+            if (!go.activeInHierarchy) { r.EstavaAtiva = false; return; }
+            // (12/11 noite, medido no PC) as cores (do desenho e dos textos) são olhadas de 4 em 4 quadros (e sempre no quadro em
+            // que a raiz aparece); a imagem, todo quadro, pelo endereço (sem criar objeto na memória)
+            bool tudo = !r.EstavaAtiva || (++r.Quadro & 3) == 0;
+            r.EstavaAtiva = true;
             float agora = Time.unscaledTime;
             if (agora >= r.ProximaBusca)
             {
                 // de tempos em tempos, o que nasceu embaixo dela (um balão novo do chat, por exemplo); os desligados também, para
                 // já estarem escuros quando aparecerem
                 r.ProximaBusca = agora + 1.5f;
+#if OTIM_TESTE
+                long b0 = GC.GetAllocatedBytesForCurrentThread();
+                TesteBuscas++;
+#endif
                 Buscar(r);
+#if OTIM_TESTE
+                TesteBytesBusca += GC.GetAllocatedBytesForCurrentThread() - b0;
+#endif
             }
             for (int i = r.Desenhos.Count - 1; i >= 0; i--)
             {
                 var d = r.Desenhos[i];
                 if (d.Sr == null) { r.Desenhos.RemoveAt(i); continue; }
-                PorDesenho(d);
+#if OTIM_TESTE
+                TesteOlhados++;
+#endif
+                PorDesenho(d, tudo);
             }
+            if (!tudo) return;
             for (int i = r.Textos.Count - 1; i >= 0; i--)
             {
                 var t = r.Textos[i];
@@ -104,15 +130,25 @@ namespace CriCriMods
         /// <summary>Esquece tudo (HUD novo: os objetos antigos já foram destruídos). As cópias ficam (servem no HUD novo).</summary>
         internal static void Esquecer() => _raizes.Clear();
 
+        /* (12/11 noite, medido no PC: com o chat aberto e escuro, 86 de 95 KB/s de lixo eram esta busca) Primeiro só CONTA o que
+           há embaixo da raiz (uma lista do jogo, sem criar um objeto para cada peça); percorre peça por peça só se a conta mudou
+           (um balão novo), ou de 10 em 10 s para pegar uma troca que não mude a conta. */
         static void Buscar(Raiz r)
         {
-            foreach (var sr in r.Go.GetComponentsInChildren<SpriteRenderer>(true))
+            var desenhos = r.Go.GetComponentsInChildren<SpriteRenderer>(true);
+            var textos = r.Go.GetComponentsInChildren<TextMeshPro>(true);
+            float agora = Time.unscaledTime;
+            if (agora < r.ProximaCompleta && desenhos.Length == r.ContaDesenhos && textos.Length == r.ContaTextos) return;
+            r.ContaDesenhos = desenhos.Length;
+            r.ContaTextos = textos.Length;
+            r.ProximaCompleta = agora + 10f;
+            foreach (var sr in desenhos)
             {
                 if (sr == null || !r.Conhecidos.Add(sr.Pointer)) continue;
                 if (NaoMexe(sr, r.Go.transform)) continue;
                 r.Desenhos.Add(new Desenho_ { Sr = sr });
             }
-            foreach (var tm in r.Go.GetComponentsInChildren<TextMeshPro>(true))
+            foreach (var tm in textos)
             {
                 if (tm == null || !r.Conhecidos.Add(tm.Pointer)) continue;
                 if (DoJogador(tm.transform, r.Go.transform)) continue;
@@ -151,26 +187,62 @@ namespace CriCriMods
 
         const float Clara = 0.6f;   // de quanto de luz para cima a imagem (vezes a cor) conta como clara
 
-        static void PorDesenho(Desenho_ d)
+        // O endereço da imagem do desenho, pelo método do próprio jogo, sem o objeto que o "sr.sprite" cria a cada chamada
+        // (centenas por quadro com o chat ou a reunião escuros). Se não achar o método, usa o sr.sprite.
+        static IntPtr _getSprite;
+        static bool _procurouGetSprite;
+        static unsafe IntPtr EnderecoDaImagem(SpriteRenderer sr)
+        {
+            if (!_procurouGetSprite)
+            {
+                _procurouGetSprite = true;
+                try
+                {
+                    foreach (var f in typeof(SpriteRenderer).GetFields(BindingFlags.NonPublic | BindingFlags.Static))
+                        if (f.Name.StartsWith("NativeMethodInfoPtr_get_sprite") && f.FieldType == typeof(IntPtr)) { _getSprite = (IntPtr)f.GetValue(null); break; }
+                }
+                catch { _getSprite = IntPtr.Zero; }
+                Log.LogInfo("[escuro] endereco da imagem " + (_getSprite != IntPtr.Zero ? "pelo metodo do jogo" : "pelo sr.sprite"));
+            }
+            if (_getSprite != IntPtr.Zero)
+            {
+                IntPtr erro = IntPtr.Zero;
+                IntPtr r = IL2CPP.il2cpp_runtime_invoke(_getSprite, sr.Pointer, (void**)IntPtr.Zero, ref erro);
+                if (erro == IntPtr.Zero) return r;
+                _getSprite = IntPtr.Zero;   // deu erro uma vez: daqui em diante, o jeito normal
+            }
+            var s = sr.sprite;
+            return s != null ? s.Pointer : IntPtr.Zero;
+        }
+
+        static void PorDesenho(Desenho_ d, bool olharCor)
         {
             var sr = d.Sr;
-            var s = sr.sprite;
-            if (s == null) return;
+            IntPtr agora = EnderecoDaImagem(sr);
+            if (agora == IntPtr.Zero) return;
             // o jogo trocou a imagem (ou é a primeira vez): a dele é a nova base
-            if (d.Posta == null || s.Pointer != d.Posta.Pointer)
+            if (d.PostaPtr == IntPtr.Zero || agora != d.PostaPtr)
             {
+                var s = sr.sprite;
+                if (s == null) return;
+#if OTIM_TESTE
+                if (d.PostaPtr != IntPtr.Zero) { TesteTrocas++; if (TesteQuemTroca.Length < 300 && !TesteQuemTroca.Contains(sr.name)) TesteQuemTroca += sr.name + "(" + s.name + ") "; }
+#endif
                 if (d.PeloTom && sr.color == d.CorPosta) sr.color = d.CorDoJogo;
                 d.PeloTom = false;
                 d.DoJogo = s;
                 d.Posta = s;
+                d.PostaPtr = agora;
                 d.Decidido = false;
             }
+            else if (d.Decidido && !olharCor) return;
             // a cor do jogo (se estou escurecendo pelo tom, a que ele tinha; se ele mudou por cima, a nova)
-            var cor = sr.color;
+            var corNoDesenho = sr.color;
+            var cor = corNoDesenho;
             if (d.PeloTom && cor == d.CorPosta) cor = d.CorDoJogo;
             if (d.Decidido && cor == d.CorVista)
             {
-                if (d.PeloTom && sr.color != d.CorPosta) sr.color = d.CorPosta;
+                if (d.PeloTom && corNoDesenho != d.CorPosta) sr.color = d.CorPosta;
                 return;
             }
             d.Decidido = true;
@@ -178,8 +250,9 @@ namespace CriCriMods
             var copia = Copia(d.DoJogo);
             bool clara = Claridade(d.DoJogo) * Math.Min(Luz(cor), 1f) > Clara;
             Sprite alvo = clara && copia != null ? copia : d.DoJogo;
-            if (sr.sprite.Pointer != alvo.Pointer) sr.sprite = alvo;
+            if (agora != alvo.Pointer) sr.sprite = alvo;
             d.Posta = alvo;
+            d.PostaPtr = alvo.Pointer;
             // clara e sem cópia (não deu para copiar): escurece pela cor
             bool tom = clara && copia == null;
             if (tom)

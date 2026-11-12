@@ -3,12 +3,18 @@
 #include <utilities/library.h>
 #include <utilities/tools.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 #include <link.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <fstream>
+#include <iterator>
+#include <string>
 #include <vector>
 #include <logger.h>
 
@@ -37,6 +43,122 @@ namespace {
             r->matches++;
         }
         return 0;
+    }
+
+    // ---- CriCri Mods (11/11/2026, o CriCri: "tão falando que demora muito pra carregar") ----
+    // padded_dlopen copiava a libil2cpp.so INTEIRA do jogo (mais de 100 MB) para a pasta do app a cada abertura, só para mudar um número
+    // nos cabeçalhos. A cópia só precisa ser refeita quando a biblioteca do jogo muda (o jogo atualizou). As funções abaixo guardam, ao
+    // lado da cópia, de qual arquivo ela saiu (caminho, tamanho, data, inode, tamanho do pool) e conferem a cópia antes de usar de novo.
+    // A pasta é interna do app: nenhum outro app escreve nela. Qualquer dúvida (arquivo de origem diferente, cópia com outro tamanho ou
+    // outros cabeçalhos, dlopen que falha) cai no caminho antigo: copiar tudo de novo.
+
+    long long now_ms()
+    {
+        timespec ts{};
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return static_cast<long long>(ts.tv_sec) * 1000LL + ts.tv_nsec / 1000000;
+    }
+
+    // Identity of the source library plus the pool size; empty if the source can't be inspected (then nothing is reused).
+    std::string describe_source(const char *path, const struct stat &st, uint64_t pool_len)
+    {
+        std::string s = "1\n";
+        s += path;
+        s += '\n';
+        s += std::to_string(static_cast<long long>(st.st_size));
+        s += '\n';
+        s += std::to_string(static_cast<long long>(st.st_mtim.tv_sec));
+        s += '.';
+        s += std::to_string(static_cast<long long>(st.st_mtim.tv_nsec));
+        s += '\n';
+        s += std::to_string(static_cast<unsigned long long>(st.st_ino));
+        s += '\n';
+        s += std::to_string(static_cast<unsigned long long>(pool_len));
+        s += '\n';
+        return s;
+    }
+
+    std::string read_small_file(const std::string &path)
+    {
+        std::ifstream f(path, std::ios::binary);
+        if (!f) return {};
+        return std::string((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    }
+
+    void write_small_file(const std::string &path, const std::string &content)
+    {
+        const std::string temp = path + ".tmp";
+        {
+            std::ofstream f(temp, std::ios::binary | std::ios::trunc);
+            f << content;
+            if (!f) return;
+        }
+        (void) rename(temp.c_str(), path.c_str());
+    }
+
+    // The existing copy has the source's size, the same ELF header and exactly the patched program headers.
+    bool copy_matches(const char *copy, uint64_t source_size, const Elf_Ehdr &eh, const std::vector<Elf_Phdr> &phdrs)
+    {
+        struct stat st{};
+        if (stat(copy, &st) != 0 || static_cast<uint64_t>(st.st_size) != source_size) return false;
+
+        std::ifstream f(copy, std::ios::binary);
+        Elf_Ehdr copied_eh{};
+        if (!f.read(reinterpret_cast<char *>(&copied_eh), sizeof(copied_eh)) ||
+            memcmp(&copied_eh, &eh, sizeof(eh)) != 0)
+            return false;
+
+        std::vector<Elf_Phdr> copied(phdrs.size());
+        const auto bytes = static_cast<std::streamsize>(copied.size() * sizeof(Elf_Phdr));
+        f.seekg(static_cast<std::streamoff>(eh.e_phoff));
+        if (!f.read(reinterpret_cast<char *>(copied.data()), bytes)) return false;
+        return memcmp(copied.data(), phdrs.data(), static_cast<size_t>(bytes)) == 0;
+    }
+
+    // Whole file, then the patched program headers on top; flushed to disk before anyone remembers it as good.
+    bool write_padded_copy(const char *source, const char *target, const Elf_Ehdr &eh, const std::vector<Elf_Phdr> &phdrs)
+    {
+        int in = open(source, O_RDONLY | O_CLOEXEC);
+        if (in < 0) return false;
+        int out = open(target, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+        if (out < 0)
+        {
+            close(in);
+            return false;
+        }
+
+        bool ok = true;
+        std::vector<char> buffer(1024 * 1024);
+        while (ok)
+        {
+            const ssize_t got = TEMP_FAILURE_RETRY(read(in, buffer.data(), buffer.size()));
+            if (got == 0) break;
+            if (got < 0)
+            {
+                ok = false;
+                break;
+            }
+            ssize_t done = 0;
+            while (done < got)
+            {
+                const ssize_t put = TEMP_FAILURE_RETRY(write(out, buffer.data() + done, static_cast<size_t>(got - done)));
+                if (put <= 0)
+                {
+                    ok = false;
+                    break;
+                }
+                done += put;
+            }
+        }
+
+        const size_t header_bytes = phdrs.size() * sizeof(Elf_Phdr);
+        if (ok && TEMP_FAILURE_RETRY(pwrite(out, phdrs.data(), header_bytes, static_cast<off_t>(eh.e_phoff))) !=
+                  static_cast<ssize_t>(header_bytes))
+            ok = false;
+        if (ok && fsync(out) != 0) ok = false;
+        if (close(out) != 0) ok = false;
+        close(in);
+        return ok;
     }
 
 } // namespace
@@ -100,25 +222,56 @@ PaddedOpenResult padded_dlopen(const char *library_name,
     const Elf_Addr pool_len = align_up(pool_size);
     last->p_memsz = pool_start + pool_len - last->p_vaddr;
 
-    // write the patched copy: whole file, then overwrite the program headers
-    in.clear();
-    in.seekg(0);
-    std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
-    out << in.rdbuf();
-    out.seekp(static_cast<std::streamoff>(eh.e_phoff));
-    out.write(reinterpret_cast<const char *>(phdrs.data()), phdrs.size() * sizeof(Elf_Phdr));
-    out.close();
-    if (!in || !out)
+    in.close();
+
+    // CriCri Mods: the patched copy from the last launch is used again while the game's library is the same file (see the top of this file).
+    const std::string origin_path = std::string(temp_path) + ".origem";
+    std::string origin;
+    struct stat source_stat{};
+    if (stat(library_name, &source_stat) == 0)
     {
-        log_format(LogLevel::ERROR, TAG, "Failed to write {}", temp_path);
-        return failure;
+        origin = describe_source(library_name, source_stat, static_cast<uint64_t>(pool_len));
     }
 
-    void *handle = dlopen(temp_path, RTLD_GLOBAL | RTLD_NOW);
+    void *handle = nullptr;
+    const long long started = now_ms();
+    if (!origin.empty() && read_small_file(origin_path) == origin &&
+        copy_matches(temp_path, static_cast<uint64_t>(source_stat.st_size), eh, phdrs))
+    {
+        handle = dlopen(temp_path, RTLD_GLOBAL | RTLD_NOW);
+        if (handle)
+        {
+            log_format(LogLevel::INFO, TAG, "Reused the padded copy {} (checked and loaded in {} ms)",
+                       temp_path, now_ms() - started);
+        }
+        else
+        {
+            log_format(LogLevel::WARN, TAG, "The kept copy {} did not load ({}): copying again",
+                       temp_path, safe_dlerror());
+        }
+    }
+
     if (!handle)
     {
-        log_format(LogLevel::ERROR, TAG, "dlopen failed for {}: {}", temp_path, safe_dlerror());
-        return failure;
+        // write the patched copy: whole file, then overwrite the program headers
+        unlink(origin_path.c_str());
+        if (!write_padded_copy(library_name, temp_path, eh, phdrs))
+        {
+            log_format(LogLevel::ERROR, TAG, "Failed to write {}", temp_path);
+            return failure;
+        }
+        const long long copied = now_ms();
+
+        handle = dlopen(temp_path, RTLD_GLOBAL | RTLD_NOW);
+        if (!handle)
+        {
+            log_format(LogLevel::ERROR, TAG, "dlopen failed for {}: {}", temp_path, safe_dlerror());
+            return failure;
+        }
+        log_format(LogLevel::INFO, TAG, "Wrote the padded copy {} in {} ms (kept for the next launches)",
+                   temp_path, copied - started);
+        // only now, with the copy on disk and proven loadable, is it remembered as good
+        if (!origin.empty()) write_small_file(origin_path, origin);
     }
 
     // ask the loader where it put the library (no symbol needed)

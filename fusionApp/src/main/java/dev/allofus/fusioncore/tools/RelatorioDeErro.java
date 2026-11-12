@@ -67,9 +67,75 @@ public final class RelatorioDeErro {
                         .append(mod.hidden || ModsManager.isEnabled(context, mod) ? " (ligado)" : " (desligado)").append('\n');
             }
         } catch (Exception ignored) {}
+        // (11/11, ele: "demora muito pra carregar") quanto cada etapa das últimas aberturas levou: só nomes de etapa e milissegundos
+        try {
+            String aberturas = Abertura.resumo(context);
+            if (!aberturas.isEmpty()) sb.append("Aberturas (ms):\n").append(aberturas).append('\n');
+        } catch (Exception ignored) {}
         sb.append("==========\n");
         sb.append(ler(arquivo));
-        return sb.length() > MAX_TEXTO ? sb.substring(0, MAX_TEXTO) + "\n[cortado]" : sb.toString();
+        // (12/11) O erro de Java da mesma queda, quando existe (ver javaDaMesmaQueda): é ele que diz ONDE quebrou.
+        if (arquivo.getName().startsWith("exit_info_")) {
+            File java = javaDaMesmaQueda(arquivo.getParentFile(), arquivo);
+            if (java != null) sb.append("\n==========\nO erro de Java gravado na hora da queda:\n").append(ler(java));
+        }
+        String texto = semSegredos(sb.toString());
+        return texto.length() > MAX_TEXTO ? texto.substring(0, MAX_TEXTO) + "\n[cortado]" : texto;
+    }
+
+    /**
+     * (12/11/2026, primeiro relatório que chegou por e-mail: um Samsung com Android 16, "APP CRASH(EXCEPTION)" e mais nada.)
+     * Uma queda por erro de Java deixa DOIS arquivos: o "java_crash_&lt;ms&gt;.txt", escrito pelo CrashDetector na hora, com o erro inteiro
+     * (a pilha de chamadas), e o "exit_info_&lt;ms&gt;.txt", escrito na abertura SEGUINTE com o que o Android guardou, e para erro de Java o
+     * Android não guarda a pilha ("Java runtime crashes do not populate ApplicationExitInfo trace streams"). O relatório pegava só o
+     * arquivo mais novo, que é sempre o segundo: saía sem o erro. Agora o primeiro vai junto.
+     *
+     * Devolve o "java_crash_" mais perto do instante da queda (o número no nome do exit_info), de 2 minutos antes a 30 s depois; null se
+     * não houver (queda nativa, processo morto pelo sistema, ou o erro aconteceu antes de o CrashDetector ser ligado).
+     */
+    static File javaDaMesmaQueda(File pasta, File exitInfo) {
+        if (pasta == null || exitInfo == null) return null;
+        long quando = numeroDoNome(exitInfo.getName(), "exit_info_");
+        if (quando <= 0) return null;
+        File[] javas = pasta.listFiles((d, nome) -> nome.startsWith("java_crash_") && nome.endsWith(".txt"));
+        if (javas == null) return null;
+        File melhor = null;
+        long menor = Long.MAX_VALUE;
+        for (File f : javas) {
+            long t = numeroDoNome(f.getName(), "java_crash_");
+            if (t <= 0) continue;
+            long antes = quando - t;   // o arquivo de Java é escrito logo ANTES de o processo morrer
+            if (antes < -30_000L || antes > 120_000L) continue;
+            if (Math.abs(antes) < menor) {
+                menor = Math.abs(antes);
+                melhor = f;
+            }
+        }
+        return melhor;
+    }
+
+    /** "exit_info_1762855112345.txt" com o prefixo "exit_info_" -> 1762855112345; 0 se o nome não for assim. */
+    static long numeroDoNome(String nome, String prefixo) {
+        if (nome == null || !nome.startsWith(prefixo) || !nome.endsWith(".txt")) return 0;
+        try {
+            return Long.parseLong(nome.substring(prefixo.length(), nome.length() - ".txt".length()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static final java.util.regex.Pattern JWT =java.util.regex.Pattern.compile("eyJ[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}\\.[A-Za-z0-9_-]{8,}");
+    private static final java.util.regex.Pattern PARAMETRO = java.util.regex.Pattern.compile("(?i)([A-Za-z0-9_]*(?:token|chave|key|senha|password|authorization))(\\s*[=:]\\s*)([^\\s&\"',;]{8,})");
+
+    /**
+     * (11/11, revisão de segurança) O relatório sai do celular pela mão do jogador (compartilhar/copiar) e vai parar em grupo de WhatsApp e
+     * Discord. O texto da queda vem do sistema (despejo do processo, últimas linhas do log): se um login do Google (um JWT, três pedaços
+     * começando por "eyJ") ou um "token=..."/"chave=..." aparecer ali, sai trocado por [removido]. Nada disso é escrito pelo app hoje; é a
+     * rede de segurança para o que o jogo ou um mod escrever no log.
+     */
+    static String semSegredos(String texto) {
+        String limpo = JWT.matcher(texto).replaceAll("[login removido]");
+        return PARAMETRO.matcher(limpo).replaceAll("$1$2[removido]");
     }
 
     private static String ler(File arquivo) {

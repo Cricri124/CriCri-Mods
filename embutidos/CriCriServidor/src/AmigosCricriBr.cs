@@ -1032,6 +1032,9 @@ namespace CriCriMods.Servidor
         // para a memória não crescer sem teto (num celular com pouca memória é ela que derruba o jogo).
         const int MaximoDeSelos = 48;
 
+        // o dourado da borda do losango do Ouro (o mesmo do servidor: Nomes.CorDaBordaDoOuro)
+        const string CorDaBordaDoOuro = "#F5C518";
+
         static bool CorValida(string c)
         {
             if (c == null || c.Length != 7 || c[0] != '#') return false;
@@ -1047,28 +1050,42 @@ namespace CriCriMods.Servidor
             if (_selos.TryGetValue(chave, out var pronto) && pronto != null) return pronto;
             if (!CorValida(selo.Bola) || !CorValida(selo.V) || _selos.Count >= MaximoDeSelos)
             {
-                selo = new Selo { Nivel = nivel, Bola = ouro ? "#F2C94C" : "#2F80ED", V = ouro ? "#3A2A00" : "#FFFFFF" };
+                // os padrões do servidor (Nomes.cs, efbc165): Verificado prata; Ouro no azul padrão; o ✓ branco
+                selo = new Selo { Nivel = nivel, Bola = ouro ? "#2F80ED" : disco ? "#1F9D62" : "#AEB6C2", V = "#FFFFFF" };
                 chave = nivel + selo.Bola + selo.V;
                 if (_selos.TryGetValue(chave, out pronto) && pronto != null) return pronto;
             }
             const int N = 96;
             ColorUtility.TryParseHtmlString(selo.Bola, out var bola);
             ColorUtility.TryParseHtmlString(selo.V, out var marca);
-            var desvios = selo.Nivel == "ouro" ? new[] { -0.1f, 0.1f } : new[] { 0f };
+            ColorUtility.TryParseHtmlString(CorDaBordaDoOuro, out var dourado);
             var tx = new Texture2D(N, N, TextureFormat.RGBA32, false) { hideFlags = HideFlags.HideAndDontSave };
             for (int y = 0; y < N; y++)
                 for (int x = 0; x < N; x++)
                 {
                     float u = (x + 0.5f) / N, v = (y + 0.5f) / N;
-                    float borda = Mathf.Clamp01((0.5f - Mathf.Sqrt((u - 0.5f) * (u - 0.5f) + (v - 0.5f) * (v - 0.5f))) * N);
-                    float tinta = 0f;
-                    foreach (float d in desvios)
+                    float du = Mathf.Abs(u - 0.5f), dv = Mathf.Abs(v - 0.5f);
+                    Color c;
+                    if (ouro)
                     {
-                        float dist = Mathf.Min(Segmento(u, v, 0.27f + d, 0.52f, 0.44f + d, 0.33f), Segmento(u, v, 0.44f + d, 0.33f, 0.74f + d, 0.68f));
-                        tinta = Mathf.Max(tinta, Mathf.Clamp01((0.07f - dist) * N));
+                        /* (12/11 noite) O Ouro é o LOSANGO aprovado pelo dono (selo 2, no jogo e no site desde efbc165): a borda dourada
+                           (#F5C518), o miolo na cor do criador e o ✓. Antes o painel do mod desenhava uma bolinha com dois ✓. */
+                        float l1 = du + dv;                                                     // 0,5 = a ponta do losango
+                        float fora = Mathf.Clamp01((0.5f - l1) * 0.7071f * N);                  // a borda de fora, lisa
+                        float miolo = Mathf.Clamp01((0.36f - l1) * 0.7071f * N);                // o miolo na cor do criador
+                        float dist = Mathf.Min(Segmento(u, v, 0.37f, 0.50f, 0.46f, 0.41f), Segmento(u, v, 0.46f, 0.41f, 0.63f, 0.60f));
+                        float tinta = Mathf.Clamp01((0.045f - dist) * N);
+                        c = Color.Lerp(Color.Lerp(dourado, bola, miolo), marca, tinta);
+                        c.a = fora;
                     }
-                    var c = Color.Lerp(bola, marca, tinta);
-                    c.a = borda;
+                    else
+                    {
+                        float borda = Mathf.Clamp01((0.5f - Mathf.Sqrt(du * du + dv * dv)) * N);
+                        float dist = Mathf.Min(Segmento(u, v, 0.27f, 0.52f, 0.44f, 0.33f), Segmento(u, v, 0.44f, 0.33f, 0.74f, 0.68f));
+                        float tinta = Mathf.Clamp01((0.07f - dist) * N);
+                        c = Color.Lerp(bola, marca, tinta);
+                        c.a = borda;
+                    }
                     tx.SetPixel(x, y, c);
                 }
             tx.Apply();

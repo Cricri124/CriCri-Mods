@@ -245,6 +245,12 @@ public final class ModsManager {
             }
 
             try {
+                // (11/11) o que já está na pasta com o sha256 do catálogo está instalado e conferido: não precisa abrir o do APK de novo
+                if (target.isFile() && sha256(target).equals(mod.sha256)) {
+                    Log.i(TAG, mod.name + " " + mod.version + " already installed");
+                    verificados.add(mod.file);
+                    continue;
+                }
                 // inside the APK, or downloaded from the site (ModsRemotos checked the signature and the sha256)
                 byte[] packaged;
                 if (mod.remoto) {
@@ -265,11 +271,6 @@ public final class ModsManager {
                 if (!packagedHash.equals(mod.sha256)) {
                     Log.e(TAG, "Refusing to install " + mod.file + ": sha256 " + packagedHash
                             + " does not match the catalog (" + mod.sha256 + ")");
-                    continue;
-                }
-                if (target.isFile() && sha256(target).equals(mod.sha256)) {
-                    Log.i(TAG, mod.name + " " + mod.version + " already installed");
-                    verificados.add(mod.file);
                     continue;
                 }
 

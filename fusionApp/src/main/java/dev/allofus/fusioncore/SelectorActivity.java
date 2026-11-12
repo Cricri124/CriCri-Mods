@@ -142,7 +142,8 @@ public class SelectorActivity extends AppCompatActivity {
                     try { startActivity(Intent.createChooser(enviar, getString(R.string.relatorio_mandar))); }
                     catch (Exception e) { copiarRelatorio(texto); }
                 })
-                .setNeutralButton(R.string.relatorio_copiar, (d, w) -> copiarRelatorio(texto))
+                // (11/11, ele: "menos complexidade") two buttons: the phone's share sheet already offers "Copiar"; without any app to
+                // share with, "Mandar" copies by itself (the catch above)
                 .setNegativeButton(R.string.relatorio_agora_nao, null)
                 .show();
     }
@@ -153,14 +154,15 @@ public class SelectorActivity extends AppCompatActivity {
         android.widget.Toast.makeText(this, R.string.relatorio_copiado, android.widget.Toast.LENGTH_SHORT).show();
     }
 
-    // First-run guide over the four parts of this screen (also from "Como usar" at the bottom).
+    // First-run guide (also from "Como usar o app" at the bottom). (11/11, ele: "menos texto, menos complexidade") Two steps, not four:
+    // the account is optional, and JOGAR. The game's line and the mods' rows say what they are on the screen itself; "gráficos e
+    // FPS ficam dentro do jogo" is in the details of the Otimização mod ("Onde fica").
     private void mostrarGuia() {
+        // without the game the one thing to do is on the button; the guide waits for the game (it is not marked as seen)
+        if (findGame() == null) return;
         Guia.mostrar(this, java.util.Arrays.asList(
-                new Guia.Passo(findViewById(R.id.bloco_jogo), R.string.guia1_titulo, R.string.guia1_texto),
-                new Guia.Passo(findViewById(R.id.bloco_conta), R.string.guia2_titulo, R.string.guia2_texto),
-                new Guia.Passo(findViewById(R.id.mods_list), R.string.guia3_titulo, R.string.guia3_texto),
-                new Guia.Passo(findViewById(findGame() != null ? R.id.play_button : R.id.install_game_button),
-                        R.string.guia4_titulo, R.string.guia4_texto)));
+                new Guia.Passo(findViewById(R.id.bloco_conta), R.string.guia_conta_titulo, R.string.guia_conta_texto),
+                new Guia.Passo(findViewById(R.id.play_button), R.string.guia_jogar_titulo, R.string.guia_jogar_texto)));
     }
 
     private void refresh() {
@@ -172,23 +174,43 @@ public class SelectorActivity extends AppCompatActivity {
         if (game != null) {
             icon.setImageDrawable(getPackageManager().getApplicationIcon(game.applicationInfo));
             boolean conferido = modsConferidos(gameVersion);
-            status.setText(getString(conferido ? R.string.jogo_pronto_format : R.string.jogo_nao_conferido_format, gameVersion));
+            // (11/11, ele: "menos texto") the version number left this line: it is in "Sobre" (the i up there) and, for a mod that
+            // was not checked on it, in that mod's details
+            status.setText(conferido ? R.string.jogo_pronto : R.string.jogo_nao_conferido);
             status.setTextColor(ContextCompat.getColor(this, conferido ? R.color.cricri_ok : R.color.cricri_warning));
             Log.i(TAG, "Among Us installed: " + gameVersion);
         } else {
-            icon.setImageDrawable(getPackageManager().getDefaultActivityIcon());
+            icon.setImageResource(R.drawable.ic_jogo_ausente);
             status.setText(R.string.game_not_installed);
             status.setTextColor(ContextCompat.getColor(this, R.color.cricri_erro));
         }
-        // without the game, the one action becomes installing it
+        // without the game, the one action becomes installing it: no account, no shortcut and no guide to offer yet
         findViewById(R.id.play_button).setVisibility(game != null ? View.VISIBLE : View.GONE);
-        findViewById(R.id.atalho_button).setVisibility(game != null && Atalho.suportado(this) ? View.VISIBLE : View.GONE);
+        // the shortcut button is there only while there is something to do: it leaves once the shortcut is on the home screen
+        findViewById(R.id.atalho_button).setVisibility(
+                game != null && Atalho.suportado(this) && !atalhoNaTelaInicial() ? View.VISIBLE : View.GONE);
         findViewById(R.id.install_game_button).setVisibility(game != null ? View.GONE : View.VISIBLE);
+        findViewById(R.id.secao_conta).setVisibility(game != null ? View.VISIBLE : View.GONE);
+        findViewById(R.id.tutorial_link).setVisibility(game != null ? View.VISIBLE : View.GONE);
 
         populateConta();
         populateChaveBr();
         populateMods(game != null ? gameVersion : null);
         atualizarResumo(game != null);
+    }
+
+    // The "Among Us (mod)" shortcut is pinned on the home screen (the launcher tells the system; a launcher that does not answer
+    // counts as "not there", and the button stays).
+    private boolean atalhoNaTelaInicial() {
+        try {
+            for (androidx.core.content.pm.ShortcutInfoCompat atalho : androidx.core.content.pm.ShortcutManagerCompat
+                    .getShortcuts(this, androidx.core.content.pm.ShortcutManagerCompat.FLAG_MATCH_PINNED)) {
+                if (Atalho.ID.equals(atalho.getId())) return true;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "nao li os atalhos da tela inicial: " + e.getClass().getSimpleName());
+        }
+        return false;
     }
 
     // every mod that is on was checked on this game version
@@ -232,12 +254,15 @@ public class SelectorActivity extends AppCompatActivity {
         String lembrado = Conta.nomeLembrado(this);
         int corStatus = R.color.cricri_warning;
         String nomeConta;
+        entrar.setVisibility(View.VISIBLE);
         if (login != null && login.valido()) {
             nomeConta = login.nome.isEmpty() ? getString(R.string.conta_sem_nome) : login.nome;
             String hora = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(login.expiraEmMs));
             status.setText(getString(R.string.conta_valido_format, hora));
             corStatus = 0;
-            entrar.setText(R.string.conta_renovar);
+            // (11/11, ele: "menos complexidade") a login that is valid asks for nothing: the action is JOGAR. "Renovar" left the
+            // screen and lives in the ⋮ of the account ("Renovar o login").
+            entrar.setVisibility(View.GONE);
         } else if (recusado != null) {
             nomeConta = recusado[0].isEmpty() ? getString(R.string.conta_sem_nome) : recusado[0];
             status.setText(R.string.conta_recusado_curto);
@@ -282,12 +307,18 @@ public class SelectorActivity extends AppCompatActivity {
 
     private void menuDaConta(View ancora) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, ancora);
-        menu.getMenu().add(0, 1, 0, R.string.conta_menu_como);
-        menu.getMenu().add(0, 2, 1, R.string.conta_menu_colar);
-        boolean temConta = Conta.carregar(this) != null || Conta.recusado(this) != null || Conta.nomeLembrado(this) != null;
-        if (temConta) menu.getMenu().add(0, 3, 2, R.string.conta_menu_sair);
+        Conta.Login atual = Conta.carregar(this);
+        // with a valid login the "Renovar" button is not on the screen any more: it is the first item here
+        if (atual != null && atual.valido()) menu.getMenu().add(0, 4, 0, R.string.conta_renovar);
+        menu.getMenu().add(0, 1, 1, R.string.conta_menu_como);
+        menu.getMenu().add(0, 2, 2, R.string.conta_menu_colar);
+        boolean temConta = atual != null || Conta.recusado(this) != null || Conta.nomeLembrado(this) != null;
+        if (temConta) menu.getMenu().add(0, 3, 3, R.string.conta_menu_sair);
         menu.setOnMenuItemClickListener(item -> {
             switch (item.getItemId()) {
+                case 4:
+                    entrar();
+                    return true;
                 case 1:
                     new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                             .setTitle(R.string.login_como_title).setView(R.layout.dialog_login_como)
@@ -321,21 +352,35 @@ public class SelectorActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.chave_br_status)).setText(tem ? R.string.chave_br_ligada : R.string.chave_br_sem);
         MaterialButton botao = findViewById(R.id.chave_br_botao);
         String aguardando = tem ? null : dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento();
-        // The account links by itself in the first CRICRI BR lobby; the button exists only for what is already there.
-        botao.setVisibility(tem || aguardando != null ? View.VISIBLE : View.GONE);
-        botao.setText(tem ? R.string.chave_br_apagar : R.string.chave_br_abrir_de_novo);
+        // The account links by itself in the first CRICRI BR lobby. The button exists only while a link opened on the site waits to be
+        // confirmed ("Abrir site"). (11/11, ele: "menos complexidade") A linked account shows "Ligada" and nothing to press: erasing
+        // the key was a filled "Apagar" beside it, the loudest thing of the block, done in one tap with no question; it is in the ⋮ now.
+        botao.setVisibility(aguardando != null ? View.VISIBLE : View.GONE);
+        botao.setText(R.string.chave_br_abrir_de_novo);
+        View mais = findViewById(R.id.chave_br_mais);
+        mais.setVisibility(tem ? View.VISIBLE : View.GONE);
+        mais.setOnClickListener(this::menuDaChaveBr);
         TextView outroJeito = findViewById(R.id.chave_br_colar_link);
         outroJeito.setVisibility(tem ? View.GONE : View.VISIBLE);
         outroJeito.setOnClickListener(v -> outrasFormasChaveBr());
         botao.setOnClickListener(v -> {
-            if (ChaveBr.temChave(this)) {
-                ChaveBr.apagar(this);
-                Toast.makeText(this, R.string.chave_br_apagada, Toast.LENGTH_SHORT).show();
-            } else if (dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento() != null) {
-                abrirNoNavegador(dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento());
-            }
+            String link = dev.allofus.fusioncore.tools.ConectarBr.linkEmAndamento();
+            if (link != null && !ChaveBr.temChave(this)) abrirNoNavegador(link);
             populateChaveBr();
         });
+    }
+
+    // The ⋮ of a linked CRICRI BR account: the one thing left to do with it.
+    private void menuDaChaveBr(View ancora) {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, ancora);
+        menu.getMenu().add(0, 1, 0, R.string.chave_br_apagar);
+        menu.setOnMenuItemClickListener(item -> {
+            ChaveBr.apagar(this);
+            Toast.makeText(this, R.string.chave_br_apagada, Toast.LENGTH_SHORT).show();
+            populateChaveBr();
+            return true;
+        });
+        menu.show();
     }
 
     // Only if linking in the lobby did not work: the site and the key by hand.
@@ -506,7 +551,7 @@ public class SelectorActivity extends AppCompatActivity {
             Conta.salvar(this, login);
             refresh();
         } catch (Conta.Problema p) {
-            new AlertDialog.Builder(this).setTitle(R.string.conta_erro_title).setMessage(p.mensagem)
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this).setTitle(R.string.conta_erro_title).setMessage(p.mensagem)
                     .setPositiveButton(R.string.conta_fechar, null).show();
         } catch (Exception e) {
             Toast.makeText(this, R.string.conta_erro_salvar, Toast.LENGTH_LONG).show();
@@ -547,12 +592,18 @@ public class SelectorActivity extends AppCompatActivity {
             View row = inflater.inflate(R.layout.item_mod, list, false);
             ((ImageView) row.findViewById(R.id.mod_icone)).setImageResource(icone(mod.icon));
             ((TextView) row.findViewById(R.id.mod_name)).setText(mod.name);
-            ((TextView) row.findViewById(R.id.mod_autor)).setText(autorEVersao(mod, R.string.mod_autor_format));
+            // (11/11, ele: "menos texto") who made it and the version are in the details sheet; the row names the author only when
+            // the mod is not the app's own
+            TextView autor = row.findViewById(R.id.mod_autor);
+            autor.setText(autorEVersao(mod, R.string.mod_autor_format));
+            boolean doApp = mod.author.isEmpty() || mod.author.equalsIgnoreCase(getString(R.string.autor_do_app));
+            autor.setVisibility(doApp ? View.GONE : View.VISIBLE);
             ((TextView) row.findViewById(R.id.mod_description)).setText(mod.description);
 
             TextView warning = row.findViewById(R.id.mod_warning);
             if (gameVersion != null && !mod.supportsGame(gameVersion)) {
-                warning.setText(getString(R.string.mod_not_checked_format, gameVersion));
+                // short on the row; the version number and what to do about it are in the details sheet
+                warning.setText(R.string.mod_nao_conferido_curto);
                 warning.setVisibility(View.VISIBLE);
             }
 
@@ -581,7 +632,6 @@ public class SelectorActivity extends AppCompatActivity {
         View row = inflater.inflate(R.layout.item_mod, list, false);
         ((ImageView) row.findViewById(R.id.mod_icone)).setImageResource(R.drawable.ic_mod_padrao);
         ((TextView) row.findViewById(R.id.mod_name)).setText(R.string.oficina_nome);
-        ((TextView) row.findViewById(R.id.mod_autor)).setText(R.string.oficina_autor);
         ((TextView) row.findViewById(R.id.mod_description)).setText(R.string.oficina_descricao);
         row.findViewById(R.id.mod_switch).setVisibility(View.GONE);
         TextView selo = row.findViewById(R.id.mod_sempre);
@@ -692,16 +742,21 @@ public class SelectorActivity extends AppCompatActivity {
     // the license and how to see it). This is also where the source address lives.
     private void showAbout() {
         String source = BuildConfig.SOURCE_URL.isEmpty() ? getString(R.string.about_source_missing) : BuildConfig.SOURCE_URL;
-        new AlertDialog.Builder(this)
+        // the game's version left the home screen (11/11, "menos texto"); it is here for whoever asks "qual a sua versão?"
+        PackageInfo jogo = findGame();
+        String versoes = BuildConfig.VERSION_NAME + (jogo != null ? " · Among Us " + jogo.versionName : "");
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.about_title)
-                .setMessage(getString(R.string.about_text_format, BuildConfig.VERSION_NAME, source))
+                .setMessage(getString(R.string.about_text_format, versoes, source))
                 .setPositiveButton(R.string.about_close, null)
-                .setNeutralButton(R.string.about_view_license, (d, w) -> showTextAsset(R.string.about_view_license, "legal/LICENSE.txt"))
-                .setNegativeButton(R.string.about_third_party, (d, w) -> showTextAsset(R.string.about_third_party, "legal/TERCEIROS.txt"))
+                // (11/11, ele: "menos complexidade") two buttons, side by side: with three the dialog stacked them and the last one fell off
+                // a normal screen. "Licenças" lists every piece of the app and its license (TERCEIROS.txt) and carries the "Ver licença"
+                // button, which opens the GPL text.
+                .setNegativeButton(R.string.about_third_party, (d, w) -> showTextAsset(R.string.about_third_party, "legal/TERCEIROS.txt", true))
                 .show();
     }
 
-    private void showTextAsset(int titleRes, String asset) {
+    private void showTextAsset(int titleRes, String asset, boolean comVerLicenca) {
         String text;
         try (InputStream in = getAssets().open(asset)) {
             java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
@@ -725,11 +780,14 @@ public class SelectorActivity extends AppCompatActivity {
         android.widget.ScrollView scroll = new android.widget.ScrollView(this);
         scroll.addView(view);
 
-        new AlertDialog.Builder(this)
+        var dialogo = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(titleRes)
                 .setView(scroll)
-                .setPositiveButton(R.string.about_close, null)
-                .show();
+                .setPositiveButton(R.string.about_close, null);
+        if (comVerLicenca) {
+            dialogo.setNegativeButton(R.string.about_view_license, (d, w) -> showTextAsset(R.string.about_view_license, "legal/LICENSE.txt", false));
+        }
+        dialogo.show();
     }
 
     private void openGameStorePage() {
@@ -870,7 +928,7 @@ public class SelectorActivity extends AppCompatActivity {
             return false;
         }
 
-        new AlertDialog.Builder(this)
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.selector_metadata_title)
                 .setMessage(getString(R.string.selector_metadata_message))
                 .setPositiveButton(R.string.selector_metadata_select, (dialog, which) -> {

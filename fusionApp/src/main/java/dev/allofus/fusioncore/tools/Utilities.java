@@ -110,14 +110,16 @@ public class Utilities {
     // on the CriCri's Redmi 14C (08/11). Now only when this app was installed/updated since the last time or a file
     // is missing or has another size: the list of unpacked files is kept with the stamp and checked (one stat per
     // file). Entries under keepExistingPrefix (BepInEx.cfg, changed on purpose) only have to exist.
-    public static void extractZipFromAssetsIfChanged(Context context, String assetName, File outputFolder, @Nullable String keepExistingPrefix) {
+    // (11/11) Devolve false quando NÃO deu para descompactar (antes só escrevia no log e o jogo abria quebrado, sem o .NET ou o BepInEx).
+    public static boolean extractZipFromAssetsIfChanged(Context context, String assetName, File outputFolder, @Nullable String keepExistingPrefix) {
         File stamp = new File(context.getNoBackupFilesDir(), "extraido-" + assetName + ".txt");
         String key = appStamp(context) + "|" + outputFolder.getAbsolutePath();
         long start = System.currentTimeMillis();
         if (stampStillValid(stamp, key, outputFolder)) {
             Log.i(TAG, assetName + " already unpacked, checked in " + (System.currentTimeMillis() - start) + " ms");
-            return;
+            return true;
         }
+        Abertura.marcarPrimeiraVez();
         List<String> names = new ArrayList<>();
         try (InputStream is = context.getAssets().open(assetName);
              ZipInputStream zis = new ZipInputStream(new BufferedInputStream(is))) {
@@ -126,7 +128,7 @@ public class Utilities {
             Log.e(TAG, "Failed to extract " + assetName + " from assets!", e);
             //noinspection ResultOfMethodCallIgnored
             stamp.delete();
-            return;
+            return false;
         }
         StringBuilder sb = new StringBuilder(key).append('\n');
         for (String name : names) {
@@ -139,6 +141,7 @@ public class Utilities {
             Log.w(TAG, "Failed to write " + stamp, e);
         }
         Log.i(TAG, "Unpacked " + assetName + " (" + names.size() + " files) in " + (System.currentTimeMillis() - start) + " ms");
+        return true;
     }
 
     private static String appStamp(Context context) {
@@ -272,10 +275,76 @@ public class Utilities {
         }
     }
 
+    /** Sem espaço para copiar os dados do jogo: faltam = quantos bytes a pessoa precisa liberar. */
+    public static final class SemEspaco extends IOException {
+        public final long faltam;
+
+        SemEspaco(long faltam) {
+            super("sem espaco: faltam " + faltam + " bytes");
+            this.faltam = faltam;
+        }
+    }
+
+    /** O andamento da cópia (bytes), para a tela de espera. */
+    public interface Andamento {
+        void bytes(long feitos, long total);
+    }
+
+    static final String MARCA_DA_COPIA = ".fusion_copied";
+    /** A única parte dos assets do jogo que alguém lê da cópia: é o que vira FUSION_GAME_DATA_DIR para o BepInEx. */
+    static final String SO_ISTO = "assets/bin/Data/";
+    private static final long FOLGA_DA_COPIA = 64L * 1024 * 1024;
+
     public static boolean copyAssets(ApplicationInfo gameInfo, File outputFolder) {
-        File marker = new File(outputFolder, ".fusion_copied");
+        try {
+            return copyAssets(gameInfo, outputFolder, null, 0L, null);
+        } catch (SemEspaco e) {
+            Log.e(TAG, "No space to copy the Unity Data assets", e);
+            return false;
+        }
+    }
+
+    /**
+     * Copia os dados da Unity (assets/bin/Data dos APKs do jogo) para a pasta que o BepInEx lê.
+     *
+     * CriCri Mods (11/11, ele: "erros de compatibilidade" e "demora muito pra carregar"). Três consertos sobre o que o Fusion Core fazia:
+     *  1. A marca ".fusion_copied" nunca vencia: depois de o Among Us ATUALIZAR, a cópia continuava a da versão velha (o global-metadata.dat
+     *     antigo com a libil2cpp nova = interop gerado errado, jogo que fecha). Agora a marca guarda a versão do jogo (carimbo) e o CRC de cada
+     *     arquivo (o do próprio APK): jogo atualizado = só o que mudou é copiado de novo.
+     *  2. Copiava TODOS os assets de todos os APKs do jogo, inclusive os pacotes de arte (perto de 1 GB no celular, na primeira abertura), mas
+     *     só bin/Data é lido da cópia (o resto a Unity lê direto do APK). Agora copia só bin/Data, e o que sobrou das versões antigas é apagado.
+     *  3. Sem espaço, copiava até encher e seguia "talvez funcione". Agora confere o espaço antes e diz quanto falta (SemEspaco).
+     *
+     * carimbo = versão + data de atualização do jogo (null = não sei: vale a marca que existir, como antes). atualizadoEm = quando o jogo foi
+     * instalado/atualizado (ms), para reconhecer uma cópia das versões antigas do app que ainda serve.
+     */
+    public static boolean copyAssets(ApplicationInfo gameInfo, File outputFolder, @Nullable String carimbo, long atualizadoEm,
+                                     @Nullable Andamento andamento) throws SemEspaco {
+        File marker = new File(outputFolder, MARCA_DA_COPIA);
+        java.util.Map<String, long[]> antes = new java.util.HashMap<>();   // nome -> {crc, tamanho} da última cópia
         if (marker.isFile()) {
-            return true;
+            String carimboGuardado = lerMarca(marker, antes);
+            if (carimbo == null || carimbo.equals(carimboGuardado)) {
+                return true;
+            }
+            if (carimboGuardado.isEmpty() && atualizadoEm > 0 && marker.lastModified() >= atualizadoEm) {
+                // cópia feita por uma versão antiga do app (marca vazia) DEPOIS da última atualização do jogo: está certa. Só passa a ter carimbo.
+                Log.i(TAG, "Unity Data copy from an older app version still matches the game: keeping it");
+                // (11/11, revisão) a limpeza vem ANTES do carimbo: se o processo morrer no meio dela, a próxima abertura
+                // cai aqui de novo e termina de limpar (com o carimbo primeiro, o espaço nunca mais voltava)
+                limparSobras(outputFolder);
+                escreverMarca(marker, carimbo, antes);
+                return true;
+            }
+            Log.i(TAG, "The game changed since the last copy of the Unity Data: copying what changed");
+        }
+
+        // Uma cópia interrompida (a pessoa saiu do app no meio) continua de onde parou, mas só se era DESTA versão do jogo: o arquivo
+        // ".andamento" diz de qual era. Sem saber de que versão são os arquivos que estão lá (nenhuma lista com CRC), começa do zero.
+        File emAndamento = new File(outputFolder, MARCA_DA_COPIA + ".andamento");
+        boolean retomando = carimbo != null && emAndamento.isFile() && carimbo.equals(lerMarca(emAndamento, new java.util.HashMap<>()));
+        if (carimbo != null && !retomando && antes.isEmpty()) {
+            Integridade.apagar(new File(outputFolder, "bin"));
         }
 
         List<String> apks = new ArrayList<>();
@@ -284,26 +353,76 @@ public class Utilities {
 
         String outputRoot;
         try {
+            if (!outputFolder.isDirectory() && !outputFolder.mkdirs()) throw new IOException("Failed to create " + outputFolder);
             outputRoot = outputFolder.getCanonicalPath() + File.separator;
         } catch (IOException e) {
             Log.e(TAG, "Failed to resolve " + outputFolder, e);
             return false;
         }
 
+        // 1a passada: o que falta e quanto pesa (só o índice dos zips, não lê os arquivos)
+        java.util.Map<String, long[]> agora = new java.util.LinkedHashMap<>();
+        java.util.Set<String> faltam = new java.util.HashSet<>();
+        long total = 0;
+        // (11/11, revisão) "total" é o que vai ser copiado (a barra); "cresce" é o espaço que a cópia ainda vai ocupar. Um arquivo que
+        // mudou é regravado POR CIMA do antigo: só a diferença de tamanho pesa. Contar o arquivo inteiro dava "Falta espaço" para quem
+        // precisava de quase nada depois de o jogo atualizar.
+        long cresce = 0;
+        try {
+            for (String apk : apks) {
+                try (ZipFile zip = new ZipFile(apk)) {
+                    Enumeration<? extends ZipEntry> entries = zip.entries();
+                    while (entries.hasMoreElements()) {
+                        ZipEntry entry = entries.nextElement();
+                        String name = entry.getName();
+                        if (entry.isDirectory() || !name.startsWith(SO_ISTO)) continue;
+                        String relativo = name.substring("assets/".length());
+                        File target = new File(outputFolder, relativo);
+                        if (!target.getCanonicalPath().startsWith(outputRoot)) continue;
+                        long[] novo = { entry.getCrc(), entry.getSize() };
+                        agora.put(relativo, novo);
+                        long[] velho = antes.get(relativo);
+                        boolean mesmoCrc = velho != null && velho[0] == novo[0] && novo[0] != -1L && velho[1] == novo[1];
+                        boolean igual = target.isFile() && target.length() == novo[1]
+                                && (carimbo == null || mesmoCrc || (retomando && velho == null));
+                        if (!igual) {
+                            faltam.add(name);
+                            total += Math.max(0L, novo[1]);
+                            cresce += Math.max(0L, novo[1] - (target.isFile() ? target.length() : 0L));
+                        }
+                    }
+                }
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Failed to read the game's APKs", e);
+            return false;
+        }
+
+        // (11/11, revisão) Os pacotes de arte que as versões antigas copiavam à toa (centenas de MB) saem ANTES da conta de espaço e
+        // antes da cópia: quem estava sem espaço por causa deles não é barrado, e uma limpeza interrompida recomeça na próxima abertura.
+        limparSobras(outputFolder);
+        long livre = outputFolder.getUsableSpace();
+        if (cresce > 0 && livre > 0 && livre < cresce + FOLGA_DA_COPIA) {
+            throw new SemEspaco(cresce + FOLGA_DA_COPIA - livre);
+        }
+
+        if (total > 0) Abertura.marcarPrimeiraVez();
+        if (carimbo != null && total > 0) escreverMarca(emAndamento, carimbo, new java.util.HashMap<>());
+
         int copied = 0;
-        byte[] buffer = new byte[64 * 1024];
+        long feitos = 0;
+        long ultimoAviso = 0;
+        byte[] buffer = new byte[256 * 1024];
+        if (andamento != null && total > 0) andamento.bytes(0, total);
         for (String apk : apks) {
             try (ZipFile zip = new ZipFile(apk)) {
                 Enumeration<? extends ZipEntry> entries = zip.entries();
                 while (entries.hasMoreElements()) {
                     ZipEntry entry = entries.nextElement();
                     String name = entry.getName();
-                    if (entry.isDirectory() || !name.startsWith("assets/")) continue;
+                    if (!faltam.contains(name)) continue;
 
                     File target = new File(outputFolder, name.substring("assets/".length()));
-                    if (!target.getCanonicalPath().startsWith(outputRoot)) continue;
-                    if (target.isFile() && target.length() == entry.getSize()) continue;
-
                     File parent = target.getParentFile();
                     if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
                         throw new IOException("Failed to create " + parent);
@@ -313,6 +432,12 @@ public class Utilities {
                         int count;
                         while ((count = in.read(buffer)) > 0) {
                             out.write(buffer, 0, count);
+                            feitos += count;
+                            long agoraMs = System.currentTimeMillis();
+                            if (andamento != null && agoraMs - ultimoAviso >= 150L) {
+                                andamento.bytes(feitos, total);
+                                ultimoAviso = agoraMs;
+                            }
                         }
                     }
                     copied++;
@@ -323,15 +448,67 @@ public class Utilities {
             }
         }
 
-        try {
-            if (!marker.createNewFile()) {
-                Log.w(TAG, "Failed to create asset copy marker: " + marker.getAbsolutePath());
+        escreverMarca(marker, carimbo, agora);
+        //noinspection ResultOfMethodCallIgnored
+        emAndamento.delete();
+        limparSobras(outputFolder);
+        Log.i(TAG, "Successfully copied " + copied + " Unity Data assets (" + (total / (1024 * 1024)) + " MB) to: " + outputFolder.getAbsolutePath());
+        return true;
+    }
+
+    /** Lê a marca: devolve o carimbo ("" na marca vazia das versões antigas) e enche o mapa nome -> {crc, tamanho}. */
+    private static String lerMarca(File marker, java.util.Map<String, long[]> arquivos) {
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.InputStreamReader(
+                new java.io.FileInputStream(marker), java.nio.charset.StandardCharsets.UTF_8))) {
+            String carimbo = reader.readLine();
+            if (carimbo == null) return "";
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String[] p = line.split("\t", 3);
+                if (p.length != 3) continue;
+                try {
+                    arquivos.put(p[2], new long[] { Long.parseLong(p[0]), Long.parseLong(p[1]) });
+                } catch (NumberFormatException ignored) {
+                }
             }
+            return carimbo;
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    private static void escreverMarca(File marker, @Nullable String carimbo, java.util.Map<String, long[]> arquivos) {
+        StringBuilder sb = new StringBuilder(carimbo == null ? "" : carimbo).append('\n');
+        if (carimbo != null) {
+            for (java.util.Map.Entry<String, long[]> e : arquivos.entrySet()) {
+                sb.append(e.getValue()[0]).append('\t').append(e.getValue()[1]).append('\t').append(e.getKey()).append('\n');
+            }
+        }
+        File temp = new File(marker.getPath() + ".tmp");
+        try (OutputStream out = new FileOutputStream(temp, false)) {
+            out.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         } catch (IOException e) {
             Log.w(TAG, "Failed to create asset copy marker", e);
+            return;
         }
-        Log.i(TAG, "Successfully copied " + copied + " Unity Data assets to: " + outputFolder.getAbsolutePath());
-        return true;
+        //noinspection ResultOfMethodCallIgnored
+        marker.delete();
+        if (!temp.renameTo(marker)) Log.w(TAG, "Failed to create asset copy marker: " + marker.getAbsolutePath());
+    }
+
+    /**
+     * Apaga da pasta da cópia tudo o que não é "bin" nem a marca: são os pacotes de arte que as versões antigas copiavam sem ninguém ler
+     * (centenas de MB no celular). Só mexe DENTRO da pasta da cópia; os dados do jogador (PersistentData, replays) e o BepInEx são pastas
+     * irmãs e não são tocados.
+     */
+    static void limparSobras(File outputFolder) {
+        File[] itens = outputFolder.listFiles();
+        if (itens == null) return;
+        for (File item : itens) {
+            String nome = item.getName();
+            if (nome.equals("bin") || nome.startsWith(MARCA_DA_COPIA)) continue;
+            if (Integridade.apagar(item)) Log.i(TAG, "Removed unused copy of game assets: " + nome);
+        }
     }
 
     public static boolean deleteRecursive(File file) {

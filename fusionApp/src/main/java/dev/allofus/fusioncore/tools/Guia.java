@@ -29,8 +29,12 @@ import dev.allofus.fusioncore.R;
 
 /**
  * CriCri Mods: first-run guide. Dims the screen, leaves a rounded window over one part of the home screen at a
- * time and explains it in a small panel ("1 de 4", title, one or two lines, Pular / Próximo). While it is up,
+ * time and explains it in a small panel ("1 de 2", title, one line, Pular / Próximo). While it is up,
  * touches don't reach the screen below (nobody launches the game by accident in the middle of it).
+ *
+ * (11/11, ele: "menos texto, menos complexidade") The home screen passes two steps now (the account is optional; JOGAR),
+ * not four. The panel's own button is neutral: the only orange under the guide is the window's outline and JOGAR, the
+ * button the guide is pointing at. On the last step "Pular" goes away (it would do the same as "Entendi").
  */
 public final class Guia {
     private static final String PREFS = "cricri_guia";
@@ -86,6 +90,7 @@ public final class Guia {
         private final LinearLayout painel;
         private final TextView contador, titulo, texto;
         private final MaterialButton proximo;
+        private final MaterialButton pular;
         private int atual;
 
         GuiaView(Activity activity, List<Passo> passos, Runnable aoTerminar) {
@@ -111,12 +116,12 @@ public final class Guia {
             painel.setBackground(fundo);
             painel.setElevation(dp(6));
 
-            contador = textoComo(activity, 12, false);
-            contador.setTextColor(ContextCompat.getColor(activity, R.color.cricri_accent));
-            titulo = textoComo(activity, 18, true);
+            contador = textoComo(activity, 13, false);
+            contador.setTextColor(Color.argb(170, 255, 255, 255));
+            titulo = textoComo(activity, 20, true);
             titulo.setPadding(0, dp(4), 0, 0);
-            texto = textoComo(activity, 14, false);
-            texto.setPadding(0, dp(6), 0, dp(8));
+            texto = textoComo(activity, 15, false);
+            texto.setPadding(0, dp(6), 0, dp(10));
             texto.setLineSpacing(0, 1.15f);
             painel.addView(contador);
             painel.addView(titulo);
@@ -126,16 +131,19 @@ public final class Guia {
             botoes.setOrientation(LinearLayout.HORIZONTAL);
             botoes.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
             // a quiet text button next to the filled "Próximo"
-            MaterialButton pular = new MaterialButton(activity);
+            pular = new MaterialButton(activity);
             pular.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.TRANSPARENT));
             pular.setTextColor(Color.argb(200, 255, 255, 255));
             pular.setElevation(0);
             pular.setStateListAnimator(null);
             pular.setText(R.string.guia_pular);
             pular.setOnClickListener(v -> terminar());
+            // light and neutral (dark text on near-white, about 15:1): white on the orange was 3:1 at this size, and the orange
+            // is JOGAR's
             proximo = new MaterialButton(activity);
-            proximo.setTextColor(Color.WHITE);
-            proximo.setBackgroundTintList(ContextCompat.getColorStateList(activity, R.color.cricri_accent));
+            proximo.setTextColor(Color.rgb(0x1D, 0x1A, 0x1F));
+            proximo.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(0xF1, 0xEC, 0xF4)));
+            proximo.setRippleColor(android.content.res.ColorStateList.valueOf(Color.argb(40, 0, 0, 0)));
             proximo.setOnClickListener(v -> {
                 if (atual + 1 < passos.size()) irPara(atual + 1); else terminar();
             });
@@ -148,7 +156,23 @@ public final class Guia {
             FrameLayout.LayoutParams plp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             plp.leftMargin = plp.rightMargin = dp(16);
             addView(painel, plp);
+            // the screen reader says each step when it changes
+            painel.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+
+            // (11/11) "Voltar" closes the guide, not the app: it used to leave the app with the guide up, and the guide came
+            // back on the next opening. Through the dispatcher: with the predictive back of Android 13+ no key event comes.
+            if (activity instanceof androidx.activity.ComponentActivity) {
+                voltar = new androidx.activity.OnBackPressedCallback(true) {
+                    @Override
+                    public void handleOnBackPressed() {
+                        terminar();
+                    }
+                };
+                ((androidx.activity.ComponentActivity) activity).getOnBackPressedDispatcher().addCallback(voltar);
+            }
         }
+
+        private androidx.activity.OnBackPressedCallback voltar;
 
         private TextView textoComo(Context c, int sp, boolean negrito) {
             TextView t = new TextView(c);
@@ -168,7 +192,11 @@ public final class Guia {
             contador.setText(getContext().getString(R.string.guia_contador_format, indice + 1, passos.size()));
             titulo.setText(passo.titulo);
             texto.setText(passo.texto);
-            proximo.setText(indice + 1 < passos.size() ? R.string.guia_proximo : R.string.guia_entendi);
+            boolean ultimo = indice + 1 >= passos.size();
+            proximo.setText(ultimo ? R.string.guia_entendi : R.string.guia_proximo);
+            pular.setVisibility(ultimo ? View.GONE : View.VISIBLE);
+            // one step only: "1 de 1" says nothing
+            contador.setVisibility(passos.size() > 1 ? View.VISIBLE : View.GONE);
             // bring the highlighted part on screen (it may be below the fold), then measure where it ended up
             Rect r = new Rect(0, 0, passo.alvo.getWidth(), passo.alvo.getHeight());
             passo.alvo.requestRectangleOnScreen(r, true);
@@ -202,6 +230,7 @@ public final class Guia {
         }
 
         private void terminar() {
+            if (voltar != null) voltar.remove();
             aoTerminar.run();
             ViewGroup pai = (ViewGroup) getParent();
             if (pai != null) pai.removeView(this);

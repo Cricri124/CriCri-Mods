@@ -94,12 +94,23 @@ public final class LibUnityDownloader {
             return false;
         }
 
-        if (isCachedLibUnityValid(outputLibUnity, outputLibUnitySym, cacheMetaFile, cacheKey)
-                && aceitos[0].equals(sha256(outputLibUnity)) && aceitos[1].equals(sha256(outputLibUnitySym))) {
-            Log.i(TAG, "Using cached libunity and symbols for " + cacheKey + " at " + outputDir.getAbsolutePath());
-            notifyDownloadFinished(progressListener, true, true);
-            return true;
+        // CriCri Mods (11/11, ele: "demora muito pra carregar"): o sha256 dos dois arquivos (a libunity e os símbolos, dezenas de MB) era
+        // refeito a cada JOGAR. Eles ficam na pasta interna do app, onde nenhum outro app escreve; depois de conferidos uma vez, o resultado
+        // fica guardado com o tamanho e a data de cada um. Arquivo trocado (data ou tamanho diferente) = confere tudo de novo.
+        File conferido = new File(outputDir, LIBUNITY_CONFERIDO_FILE);
+        String identidade = identidade(aceitos, outputLibUnity, outputLibUnitySym);
+        if (isCachedLibUnityValid(outputLibUnity, outputLibUnitySym, cacheMetaFile, cacheKey)) {
+            boolean jaConferido = identidade.equals(lerTexto(conferido));
+            if (jaConferido || (aceitos[0].equals(sha256(outputLibUnity)) && aceitos[1].equals(sha256(outputLibUnitySym)))) {
+                if (!jaConferido) escreverTexto(conferido, identidade);
+                Log.i(TAG, "Using cached libunity and symbols for " + cacheKey + " at " + outputDir.getAbsolutePath()
+                        + (jaConferido ? " (already verified)" : " (verified now)"));
+                notifyDownloadFinished(progressListener, true, true);
+                return true;
+            }
         }
+        //noinspection ResultOfMethodCallIgnored
+        conferido.delete();
 
         String baseUrl = LIBUNITY_DOWNLOAD_URL + downloadVersion + "/";
         String libUrl = baseUrl + "libunity.so." + currentAbi;
@@ -134,6 +145,8 @@ public final class LibUnityDownloader {
         if (!writeLibUnityCacheMeta(cacheMetaFile, cacheKey, outputLibUnity.length(), outputLibUnitySym.length())) {
             Log.w(TAG, "Downloaded files but failed to update cache metadata");
         }
+        // acabaram de bater com o sha256 fixo: a próxima abertura não precisa ler tudo de novo
+        escreverTexto(conferido, identidade(aceitos, outputLibUnity, outputLibUnitySym));
 
         Log.i(TAG, "Successfully downloaded libunity and symbols to " + outputDir.getAbsolutePath());
         notifyDownloadFinished(progressListener, true, false);
@@ -158,6 +171,12 @@ public final class LibUnityDownloader {
             }
 
             long totalBytes = connection.getContentLengthLong();
+            // CriCri Mods (11/11, revisão de segurança): o sha256 só é conferido DEPOIS de baixar. Sem teto, um servidor trocado ou com
+            // defeito enchia o celular antes de ser recusado. Os arquivos aceitos têm 25 MB (libunity) e 11 MB (símbolos).
+            if (totalBytes > LIMITE_DO_DOWNLOAD) {
+                Log.e(TAG, "Refusing " + urlString + ": " + totalBytes + " bytes is more than any accepted file");
+                return false;
+            }
             notifyDownloadStarted(progressListener, urlString, totalBytes);
 
             byte[] buffer = new byte[8192];
@@ -170,6 +189,10 @@ public final class LibUnityDownloader {
                 while ((count = is.read(buffer)) != -1) {
                     fos.write(buffer, 0, count);
                     downloadedBytes += count;
+                    if (downloadedBytes > LIMITE_DO_DOWNLOAD) {
+                        Log.e(TAG, "Stopping " + urlString + ": more bytes than any accepted file");
+                        return false;
+                    }
 
                     long now = System.currentTimeMillis();
                     if (now - lastProgressDispatchMs >= 120L) {
@@ -205,7 +228,42 @@ public final class LibUnityDownloader {
         }
     }
 
-    private static String sha256(File arquivo) {
+    private static final String LIBUNITY_CONFERIDO_FILE = "libunity.conferido.txt";
+    /** Teto de cada arquivo baixado (o maior aceito hoje tem 25 MB). */
+    static final long LIMITE_DO_DOWNLOAD = 96L * 1024 * 1024;
+
+    /** Os dois sha256 aceitos + tamanho e data dos dois arquivos: o que tem de continuar igual para não conferir de novo. */
+    static String identidade(String[] aceitos, File libUnity, File libUnitySym) {
+        return aceitos[0] + '|' + aceitos[1] + '|' + libUnity.length() + '|' + libUnity.lastModified()
+                + '|' + libUnitySym.length() + '|' + libUnitySym.lastModified();
+    }
+
+    /** Tests only: accepts one more pinned pair. */
+    static void aceitarParaTeste(String chave, String shaLib, String shaSym) {
+        ACEITOS.put(chave, new String[] { shaLib, shaSym });
+    }
+
+    private static String lerTexto(File f) {
+        if (!f.isFile() || f.length() > 4096) return null;
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] b = new byte[(int) f.length()];
+            int n = 0, r;
+            while (n < b.length && (r = in.read(b, n, b.length - n)) > 0) n += r;
+            return new String(b, 0, n, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static void escreverTexto(File f, String texto) {
+        try (FileOutputStream out = new FileOutputStream(f, false)) {
+            out.write(texto.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            Log.w(TAG, "Could not remember the libunity check: " + e.getClass().getSimpleName());
+        }
+    }
+
+    static String sha256(File arquivo) {
         try (InputStream in = new FileInputStream(arquivo)) {
             java.security.MessageDigest d = java.security.MessageDigest.getInstance("SHA-256");
             byte[] buffer = new byte[64 * 1024];

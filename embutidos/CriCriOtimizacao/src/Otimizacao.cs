@@ -56,14 +56,24 @@ namespace CriCriMods
 
         // (12/11) Depois de todos os Update do jogo (o lugar dos botões, o texto do ping): a barra do ping, o HUD da pessoa e o
         // editor do HUD são postos aqui, por cima do que o jogo pôs neste quadro.
+#if OTIM_TESTE
+        // só no piloto do PC: os bytes que a barra do ping, o layout, o escuro e o editor alocam (medida do lixo, 12/11)
+        internal static long BytesDoHud;
+#endif
         void LateUpdate()
         {
+#if OTIM_TESTE
+            long antesDoHud = GC.GetAllocatedBytesForCurrentThread();
+#endif
             try { BarraDoPing.Quadro(); }
             catch (Exception e) { if (_avisos.Add("barra" + e.GetType().Name)) Log.LogWarning("[ping] " + e.GetType().Name + ": " + e.Message); }
             try { LayoutDoHud.Quadro(); }
             catch (Exception e) { if (_avisos.Add("hud" + e.GetType().Name)) Log.LogWarning("[hud] " + e.GetType().Name + ": " + e.Message); }
             try { EditorDoHud.Quadro(); }
             catch (Exception e) { if (_avisos.Add("editor" + e.GetType().Name)) Log.LogWarning("[hud] editor: " + e.GetType().Name + ": " + e.Message); }
+#if OTIM_TESTE
+            BytesDoHud += GC.GetAllocatedBytesForCurrentThread() - antesDoHud;
+#endif
         }
 
         void Update()

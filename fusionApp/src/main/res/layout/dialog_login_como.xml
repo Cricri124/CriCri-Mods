@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- CriCri Mods: "Como entrar", step by step with pictures. The pictures are illustrations: a real print would show someone's e-mail. -->
+<!-- CriCri Mods: "Como entrar". (11/11, ele: "menos texto, menos complexidade") One sentence and one picture, of the step people
+     miss: the ✓ at the top of Innersloth's page. "Toque em Entrar" (they just did) and "escolha a conta" (Google's own screen
+     says it) left; the pictures of those two steps are still in drawable-nodpi (login_passo_1/2), unused.
+     The picture is an illustration: a real print would show someone's e-mail. -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -14,46 +17,16 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/login_passo1"
+            android:text="@string/login_como_texto"
             android:textAppearance="?attr/textAppearanceBodyLarge" />
 
         <ImageView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="20dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
             android:adjustViewBounds="true"
-            android:contentDescription="@string/login_passo1"
-            android:src="@drawable/login_passo_1" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/login_passo2"
-            android:textAppearance="?attr/textAppearanceBodyLarge" />
-
-        <ImageView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="20dp"
-            android:adjustViewBounds="true"
-            android:contentDescription="@string/login_passo2"
-            android:src="@drawable/login_passo_2" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="@string/login_passo3"
-            android:textAppearance="?attr/textAppearanceBodyLarge" />
-
-        <ImageView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="16dp"
-            android:adjustViewBounds="true"
-            android:contentDescription="@string/login_passo3"
+            android:contentDescription="@string/login_como_texto"
             android:src="@drawable/login_passo_3" />
 
         <TextView
@@ -61,6 +34,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
             android:text="@string/login_passos_nota"
-            android:textAppearance="?attr/textAppearanceBodyMedium" />
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?android:attr/textColorSecondary" />
     </LinearLayout>
 </ScrollView>

@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <jni.h>
+#include <ctime>
+#include <string>
 #include <filesystem>
 #include <logger.h>
 #include <libmain.h>
@@ -20,6 +22,35 @@
 namespace fs = std::filesystem;
 
 FusionConfig runtime_config;
+
+// CriCri Mods (11/11/2026, o CriCri: "tão falando que demora muito pra carregar"): as marcas de tempo do lado nativo da abertura.
+// Cada linha de <pasta de dados>/abertura-nativo.txt é "nome=milissegundos desde que o celular ligou" (CLOCK_BOOTTIME, o mesmo relógio
+// do SystemClock.elapsedRealtime() do Java). tools/Abertura.java apaga o arquivo no JOGAR e soma estas marcas ao resumo da abertura,
+// que vai para o log e para o relatório de erro. Só nomes de etapa e números.
+static void marcar_abertura(const std::string &pasta, const char *nome)
+{
+    if (pasta.empty()) return;
+    timespec agora{};
+    clock_gettime(CLOCK_BOOTTIME, &agora);
+    const long long ms = static_cast<long long>(agora.tv_sec) * 1000LL + agora.tv_nsec / 1000000;
+    const std::string caminho = pasta + "/abertura-nativo.txt";
+    int arquivo = open(caminho.c_str(), O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    if (arquivo < 0) return;
+    const std::string linha = std::string(nome) + "=" + std::to_string(ms) + "\n";
+    if (write(arquivo, linha.c_str(), linha.size()) < 0)
+    {
+        log(LogLevel::WARN, TAG, "Could not write the opening mark.");
+    }
+    close(arquivo);
+}
+
+// CriCri Mods: fdsan (Android 10+) mata o processo quando um descritor de arquivo é fechado duas vezes. Das 9 quedas vistas nos
+// relatórios do celular (08/11), 8 eram isso, vindas do lado gerenciado. Avisa uma vez em vez de matar o jogo.
+static void fdsan_so_avisa()
+{
+    using FdsanSetLevel = int (*)(int);
+    if (auto setLevel = reinterpret_cast<FdsanSetLevel>(dlsym(RTLD_DEFAULT, "android_fdsan_set_error_level"))) setLevel(1 /* WARN_ONCE */);
+}
 
 static bool execute_fusion_config(const FusionConfig &config)
 {
@@ -87,8 +118,10 @@ int il2cpp_init_hook(char *domain_name)
     log_format(LogLevel::INFO, TAG, "il2cpp_init called with domain: {}", d_name);
     il2cpp_destroy_init_hook();
 
+    marcar_abertura(runtime_config.appDataDirectory, "il2cpp_init");
     // call the original il2cpp_init function
     int result = il2cpp_init(domain_name);
+    marcar_abertura(runtime_config.appDataDirectory, "il2cpp_pronto");
 
     if (runtime_config.initialized)
     {
@@ -125,8 +158,8 @@ int il2cpp_init_hook(char *domain_name)
         // CriCri Mods: something in the managed side closes a file descriptor twice, sometimes while the game opens. On Android that is a
         // fatal "fdsan" abort (phone logs 08/11: in UnityMain and, with the number reused, in RenderThread). Warn once instead of killing the
         // game; the first warning still goes to logcat so the culprit can be found. Looked up by name: the function needs Android 10.
-        using FdsanSetLevel = int (*)(int);
-        if (auto setLevel = reinterpret_cast<FdsanSetLevel>(dlsym(RTLD_DEFAULT, "android_fdsan_set_error_level"))) setLevel(1 /* WARN_ONCE */);
+        // (11/11) agora também é ligado quando a biblioteca carrega (fusion_bootstrap_from_libmain); repetir aqui não custa nada.
+        fdsan_so_avisa();
 
         // CriCri Mods: an unhandled .NET exception ends the process with only "Aborting process." in the crash report (09/11); its text
         // goes to stderr, and Android throws stderr away. Keep it in a file, and keep the file of the last launch that wrote something.
@@ -174,6 +207,7 @@ int il2cpp_init_hook(char *domain_name)
         // change working directory to fusion's scoped data directory
         chdir(runtime_config.appDataDirectory.c_str());
         dotnet_execute_assembly(dotNetConfig, &list);
+        marcar_abertura(runtime_config.appDataDirectory, "bepinex_pronto");
     }
     else
     {
@@ -189,9 +223,13 @@ extern "C" [[maybe_unused]] bool fusion_bootstrap_from_libmain(JNIEnv *env)
     (void) env;
 
     log(LogLevel::INFO, TAG, "FusionCore bootstrap starting...");
+    // CriCri Mods (11/11): antes só era ligado dentro do il2cpp_init; uma dupla de close() entre a carga das bibliotecas e esse ponto
+    // ainda derrubava o processo.
+    fdsan_so_avisa();
     jobject javaConfig = get_fusion_config(env);
     FusionConfig config = fusion_parse_config(env, javaConfig);
     env->DeleteLocalRef(javaConfig);
+    marcar_abertura(config.appDataDirectory, "biblioteca");
 
     log(LogLevel::INFO, TAG, "Executing Fusion bootstrap from libmain namespace...");
     if (!execute_fusion_config(config)) {
@@ -241,6 +279,7 @@ extern "C" [[maybe_unused]] bool fusion_bootstrap_from_libmain(JNIEnv *env)
 
     log(LogLevel::INFO, TAG, "Installing il2cpp hooks...");
     il2cpp_install_init_hook(il2cpp_init_hook);
+    marcar_abertura(runtime_config.appDataDirectory, "motor_pronto");
     log(LogLevel::INFO, TAG, "il2cpp hooks installed successfully!");
     log(LogLevel::INFO, TAG, "FusionCore bootstrap finished successfully.");
     return true;

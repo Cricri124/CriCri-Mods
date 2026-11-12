@@ -30,8 +30,21 @@ public final class Il2CppApiMapper {
         return !readDynamicSymbols(gameLibIl2Cpp).contains(MARKER);
     }
 
+    private static final String MEMO_NAME = "il2cpp-sem-ofuscar.txt";
+
+    /**
+     * CriCri Mods (11/11, ele: "demora muito pra carregar"): a cada JOGAR isto lia a libunity do jogo e a baixada inteiras (dezenas de MB cada)
+     * e montava a lista de TODOS os textos das duas só para descobrir que o Among Us não é ofuscado. A resposta só muda quando o jogo atualiza
+     * ou a libunity baixada troca: agora ela fica guardada ao lado da libunity (pasta interna do app), com o caminho, o tamanho e a data dos
+     * três arquivos, e a abertura seguinte não lê nada.
+     */
     public static Map<String, String> prepare(File gameLibUnity, File gameLibIl2Cpp, File cachedLibUnity)
             throws IOException {
+        File memo = new File(cachedLibUnity.getParentFile(), MEMO_NAME);
+        if (identidade(gameLibUnity, gameLibIl2Cpp, cachedLibUnity).equals(readMemo(memo))) {
+            return new HashMap<>();
+        }
+
         byte[] game = readAll(gameLibUnity);
         File backup = new File(cachedLibUnity.getParentFile(), STOCK_BACKUP_NAME);
         byte[] cached = readAll(cachedLibUnity);
@@ -41,8 +54,16 @@ public final class Il2CppApiMapper {
                 Log.i(TAG, "Game is not obfuscated, restoring stock libunity");
                 writeAll(cachedLibUnity, readAll(backup));
             }
+            // depois de restaurar (a data da libunity muda): a identidade guardada é a dos arquivos como ficaram
+            try {
+                writeAll(memo, identidade(gameLibUnity, gameLibIl2Cpp, cachedLibUnity).getBytes(StandardCharsets.UTF_8));
+            } catch (IOException e) {
+                Log.w(TAG, "Could not remember that the game is not obfuscated: " + e.getClass().getSimpleName());
+            }
             return new HashMap<>();
         }
+        //noinspection ResultOfMethodCallIgnored
+        memo.delete();
 
         byte[] stock = readStock(cachedLibUnity, cached);
         Set<String> exports = readDynamicSymbols(gameLibIl2Cpp);
@@ -139,11 +160,49 @@ public final class Il2CppApiMapper {
         return data[offset + expected.length] == 0;
     }
 
-    private static boolean containsCString(byte[] data, String value) {
+    /**
+     * Existe em data o texto value inteiro, entre dois zeros (ou no começo do arquivo)? É a mesma pergunta que "scanIdentifiers(data) tem
+     * value", sem criar um String para cada texto do arquivo (centenas de milhares numa libunity).
+     */
+    static boolean containsCString(byte[] data, String value) {
+        byte[] alvo = value.getBytes(StandardCharsets.US_ASCII);
+        if (alvo.length < 4 || alvo.length > 128) return false;
+        int ultimo = data.length - alvo.length - 1;   // precisa caber o zero do fim
+        proximo:
+        for (int i = 0; i <= ultimo; i++) {
+            if (data[i] != alvo[0] || (i > 0 && data[i - 1] != 0) || data[i + alvo.length] != 0) continue;
+            for (int j = 1; j < alvo.length; j++) {
+                if (data[i + j] != alvo[j]) continue proximo;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /** O mesmo teste pelo caminho antigo (lista de todos os textos): só para os testes compararem. */
+    static boolean containsCStringPelaLista(byte[] data, String value) {
         for (CString s : scanIdentifiers(data)) {
             if (s.value.equals(value)) return true;
         }
         return false;
+    }
+
+    /** Caminho, tamanho e data dos três arquivos: muda quando o jogo atualiza (a pasta do jogo troca de nome) ou a libunity baixada troca. */
+    static String identidade(File... arquivos) {
+        StringBuilder sb = new StringBuilder("1");
+        for (File f : arquivos) {
+            sb.append('\n').append(f.getAbsolutePath()).append('|').append(f.length()).append('|').append(f.lastModified());
+        }
+        return sb.toString();
+    }
+
+    private static String readMemo(File memo) {
+        if (!memo.isFile() || memo.length() > 8192) return null;
+        try {
+            return new String(readAll(memo), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private static List<CString> scanIdentifiers(byte[] data) {

@@ -17,7 +17,9 @@
     <Nullable>disable</Nullable>
     <AssemblyName>CriCriOtimizacao</AssemblyName>
     <RootNamespace>CriCriMods</RootNamespace>
-    <Version>0.6.0</Version>
+    <Version>0.6.1</Version>
+    <!-- 12/11: Escuro.EnderecoDaImagem chama o método do jogo direto (il2cpp_runtime_invoke), sem criar objeto por quadro -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DebugType>none</DebugType>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>

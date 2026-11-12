@@ -15,12 +15,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
@@ -39,6 +44,7 @@ public final class Integridade {
     private static final String ZIP_DO_BEPINEX = "BepInEx-arm64.zip";
     private static final String NUCLEO = "core/";
     private static final String MEMORIA_INTEROP = "interop-conferido.txt";
+    private static final String LISTA_DO_NUCLEO = "nucleo-oficial.txt";
 
     private Integridade() {}
 
@@ -84,9 +90,23 @@ public final class Integridade {
         }
     }
 
+    /**
+     * (11/11, ele: "demora muito pra carregar") O núcleo era conferido a cada JOGAR descompactando o zip inteiro (8 MB) e fazendo o sha256
+     * dos dois lados. A lista oficial (nome → sha256) não muda enquanto o app for o mesmo: agora ela fica guardada na pasta interna do app
+     * (onde nenhum outro app escreve), carimbada com a versão do app, e a cada JOGAR só os arquivos DO DISCO são lidos, em paralelo. A
+     * proteção é a mesma: todo arquivo do núcleo continua sendo conferido byte a byte toda vez. Qualquer diferença cai no caminho completo
+     * (compara com o zip e restaura), que é o de antes.
+     */
     private static boolean conferirNucleo(Context context, File bepInExDir) {
-        Set<String> doZip = new HashSet<>();
         File nucleo = new File(bepInExDir, NUCLEO);
+        File lista = new File(context.getNoBackupFilesDir(), LISTA_DO_NUCLEO);
+        String carimbo = carimboDoApp(context);
+        Map<String, String> oficiais = lerLista(lista, carimbo);
+        if (oficiais != null && nucleoIgual(nucleo, oficiais)) {
+            return limparNucleo(nucleo, "", oficiais.keySet());
+        }
+
+        Map<String, String> doZip = new TreeMap<>();
         try (ZipInputStream zip = new ZipInputStream(new BufferedInputStream(context.getAssets().open(ZIP_DO_BEPINEX)))) {
             ZipEntry e;
             while ((e = zip.getNextEntry()) != null) {
@@ -94,9 +114,10 @@ public final class Integridade {
                 if (e.isDirectory() || !nome.startsWith(NUCLEO)) continue;
                 if (nome.contains("..") || nome.contains("\\")) return false;
                 byte[] oficial = lerTudo(zip);
-                doZip.add(nome.substring(NUCLEO.length()));
+                String shaOficial = sha256(oficial);
+                doZip.put(nome.substring(NUCLEO.length()), shaOficial);
                 File destino = new File(bepInExDir, nome);
-                if (destino.isFile() && destino.length() == oficial.length && sha256(destino).equals(sha256(oficial))) continue;
+                if (destino.isFile() && destino.length() == oficial.length && sha256(destino).equals(shaOficial)) continue;
                 Log.w(TAG, "Arquivo do nucleo alterado, restaurado: " + nome);
                 File pai = destino.getParentFile();
                 if (pai != null && !pai.isDirectory() && !pai.mkdirs()) return false;
@@ -108,7 +129,79 @@ public final class Integridade {
             Log.e(TAG, "Nao consegui conferir o nucleo: " + e.getClass().getSimpleName());
             return false;
         }
-        return limparNucleo(nucleo, "", doZip);
+        if (carimbo != null && !doZip.isEmpty()) escreverTexto(lista, formatar(carimbo, doZip));
+        return limparNucleo(nucleo, "", doZip.keySet());
+    }
+
+    /** Versão + data de instalação do app: a lista oficial do núcleo só vale para o APK de onde saiu. null = não sei (não guarda nada). */
+    private static String carimboDoApp(Context context) {
+        try {
+            PackageInfo info = context.getPackageManager().getPackageInfo(context.getPackageName(), 0);
+            return (Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode) + "|" + info.lastUpdateTime;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** A lista guardada (nome → sha256), só se for deste app; senão null. */
+    private static Map<String, String> lerLista(File lista, String carimbo) {
+        String texto = carimbo == null ? null : lerTexto(lista);
+        if (texto == null) return null;
+        String[] linhas = texto.split("\n");
+        if (linhas.length < 2 || !linhas[0].equals(carimbo)) return null;
+        Map<String, String> r = new TreeMap<>();
+        for (int i = 1; i < linhas.length; i++) {
+            int tab = linhas[i].indexOf('\t');
+            if (tab <= 0) return null;
+            r.put(linhas[i].substring(0, tab), linhas[i].substring(tab + 1));
+        }
+        return r;
+    }
+
+    /** Todos os arquivos oficiais existem no disco com o sha256 da lista? (lê os arquivos em paralelo) */
+    private static boolean nucleoIgual(File nucleo, Map<String, String> oficiais) {
+        List<File> arquivos = new ArrayList<>();
+        List<String> esperados = new ArrayList<>();
+        for (Map.Entry<String, String> e : oficiais.entrySet()) {
+            File f = new File(nucleo, e.getKey());
+            if (!f.isFile()) return false;
+            arquivos.add(f);
+            esperados.add(e.getValue());
+        }
+        List<String> achados = sha256DeTodos(arquivos);
+        return achados != null && achados.equals(esperados);
+    }
+
+    /**
+     * O sha256 de vários arquivos, na ordem pedida, lendo até 4 ao mesmo tempo (o interop do Among Us são 133 arquivos, 50 MB, conferidos a
+     * cada JOGAR). null se algum não deu para ler. O ganho de verdade só o celular diz: fica no tempo da etapa "seguranca" da Abertura.
+     */
+    static List<String> sha256DeTodos(List<File> arquivos) {
+        int linhas = Math.max(1, Math.min(4, Runtime.getRuntime().availableProcessors()));
+        if (arquivos.size() < 2 || linhas == 1) {
+            List<String> r = new ArrayList<>();
+            try {
+                for (File f : arquivos) r.add(sha256(f));
+            } catch (IOException e) {
+                return null;
+            }
+            return r;
+        }
+        ExecutorService fila = Executors.newFixedThreadPool(linhas);
+        try {
+            List<Future<String>> pedidos = new ArrayList<>();
+            for (File f : arquivos) pedidos.add(fila.submit(() -> sha256(f)));
+            List<String> r = new ArrayList<>();
+            for (Future<String> p : pedidos) r.add(p.get());
+            return r;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            fila.shutdownNow();
+        }
     }
 
     private static boolean limparNucleo(File pasta, String prefixo, Set<String> doZip) {
@@ -172,12 +265,12 @@ public final class Integridade {
     private static Map<String, String> hashes(File pasta) {
         File[] itens = pasta.listFiles();
         if (itens == null) return null;
+        List<File> arquivos = new ArrayList<>();
+        for (File f : itens) if (f.isFile()) arquivos.add(f);
+        List<String> somas = sha256DeTodos(arquivos);
+        if (somas == null) return null;
         Map<String, String> r = new TreeMap<>();
-        try {
-            for (File f : itens) if (f.isFile()) r.put(f.getName(), sha256(f));
-        } catch (IOException e) {
-            return null;
-        }
+        for (int i = 0; i < arquivos.size(); i++) r.put(arquivos.get(i).getName(), somas.get(i));
         return r;
     }
 

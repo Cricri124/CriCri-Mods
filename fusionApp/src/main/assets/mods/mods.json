@@ -5,9 +5,8 @@
       "name": "CriCri Replay",
       "author": "CriCri",
       "icon": "replay",
-      "version": "1.8.0",
+      "version": "1.8.1",
       "file": "CriCriReplay.dll",
-      "sha256": "1f8343a76d49530edf03d101fcde8b32f2dd7bb9e172c5901940ff4ab8044164",
       "description": "Assista às suas partidas de novo dentro do jogo.",
       "details": [
         "Grava sozinho cada partida que você joga, sem precisar apertar nada.",
@@ -21,16 +20,16 @@
       "enabledByDefault": true,
       "gameVersions": [
         "2026.11.3"
-      ]
+      ],
+      "sha256": "823a5b2ad501b36a9d563b36adfba8b4d677b0254e2e0b32a05cfad061d78717"
     },
     {
       "id": "br.com.cricribr.servidor",
       "name": "Servidor CRICRI BR",
       "author": "CriCri",
       "icon": "servidor",
-      "version": "0.4.0",
+      "version": "0.4.2",
       "file": "CriCriServidor.dll",
-      "sha256": "efcd5c4e84b9bccfd5fdae24b8f66f464228be3117e8df7e0f57b94130f1b65b",
       "description": "O servidor brasileiro do CriCri e as opções das salas de lá.",
       "details": [
         "Acrescenta a região CriCri BR, com servidor em São Paulo: menos atraso pra quem joga do Brasil.",
@@ -40,38 +39,40 @@
       ],
       "where": "No lobby do CRICRI BR: a aba CRICRI BR",
       "enabledByDefault": true,
-      "gameVersions": []
+      "gameVersions": [],
+      "sha256": "6e4a95aca352ca4f37af0244cb5ae50fefadd5ea43c5f611c95d7672aae7e950"
     },
     {
       "id": "br.com.cricribr.otimizacao",
       "name": "Otimização",
       "author": "CriCri",
       "icon": "otimizacao",
-      "version": "0.5.0",
+      "version": "0.6.1",
       "file": "CriCriOtimizacao.dll",
-      "sha256": "17c03241c56b23cddaf4929c7864243890931cfe091cffacbb13cb53244515f7",
-      "description": "FPS, resolução e modo flash, ajustados no jogo.",
+      "description": "FPS, ping, HUD do seu jeito e modo escuro.",
       "details": [
-        "Limite de FPS até o máximo da sua tela e contador de FPS na tela.",
+        "Embaixo, no lugar do ping: o wifi colorido (verde, amarelo, vermelho), os ms e o FPS. Dá pra mostrar o servidor ou esconder.",
+        "Personalizar HUD: arraste qualquer botão, o analógico, o chat, a lista e a barra de tarefas; mude o tamanho, a opacidade e a tecla. 3 presets e Padrão.",
+        "Modo escuro: só o chat ou completo (botões de cima, analógico, lista, barra de tarefas e reunião), ou peça por peça no Personalizar HUD.",
+        "Limite de FPS até o máximo da sua tela.",
         "Resolução numa barra, como no PC, e já na recomendada para o seu celular ao ligar a otimização (o tamanho novo vale quando o jogo abre).",
         "Modo flash: o jogo abre sem a espera da tela de abertura e carrega mais rápido fora da rodada.",
-        "Movimento suave e texturas no máximo.",
-        "Modo streamer e nome na cor do jogador para quem usa o modo daltônico.",
+        "Movimento suave, texturas no máximo, modo streamer e nome na cor do jogador para quem usa o modo daltônico.",
         "Sem anúncios dentro do jogo."
       ],
-      "where": "No jogo: Definições → Gráficos (modo streamer em Geral)",
+      "where": "No jogo: Definições → Gráficos (Personalizar HUD e Modo escuro também; modo streamer em Geral)",
       "hidden": true,
       "listed": true,
-      "gameVersions": []
+      "gameVersions": [],
+      "sha256": "25d0f699531da5813e6fad11cf111a9b8f2556485876977938653302e8f6638f"
     },
     {
       "id": "br.com.cricribr.conta",
       "name": "Login",
       "author": "CriCri",
       "icon": "conta",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "file": "CriCriConta.dll",
-      "sha256": "8f1e0a1ab363795729702e28e88ca4d42b1b5bac077c94cefde65608095cdff9",
       "description": "Faz o jogo entrar na conta que você escolheu no app.",
       "details": [
         "Entrega ao jogo o login que você fez pelo site oficial da Innersloth.",
@@ -82,7 +83,8 @@
       "where": "Tela inicial do app → Conta",
       "hidden": true,
       "listed": true,
-      "gameVersions": []
+      "gameVersions": [],
+      "sha256": "8e922e77e18f7f848c25d25079597e3723eeb9306a86ccb81af915deffdb2718"
     }
   ],
   "removidos": [

@@ -1,15 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The wait drawn over the game while the mods load (hooks/GameRuntime puts it on the game's window; tools/JniBridge writes
+     the text and a clock). CriCri Mods (11/11): the spinner in the app's orange and at a normal size (it was 128dp in the
+     theme's default teal), the text a step smaller. The text is as wide as the screen minus a margin, so a long phrase
+     ("Preparando os mods (só desta vez, pode demorar)… (01:12)") wraps instead of running off a narrow screen.
+     The phrases are EsperaDoJogo's (BepInEx sends its own in English). -->
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/loader"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
     <ProgressBar
         android:id="@+id/progressBar"
-        android:layout_width="128dp"
-        android:layout_height="128dp"
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:indeterminateTint="@color/cricri_accent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -17,12 +22,16 @@
 
     <dev.allofus.fusioncore.tools.OutlinedTextView
         android:id="@+id/loadingText"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="24dp"
+        android:gravity="center"
         android:text="@string/loading"
         android:textColor="@android:color/white"
         android:padding="2dp"
-        android:textSize="24sp"
+        android:textSize="20sp"
         android:textAlignment="center"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"

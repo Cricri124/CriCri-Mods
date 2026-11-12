@@ -86,10 +86,9 @@ namespace CriCriMods
 
         /* O que cada rodada fez (os roteiros antigos estão em trabalho/otimizacao/roteiroN.txt e trabalho/eu/roteiroN.cs.txt):
            1 a 16: medidas, sombra, Diagnóstico, mapas, Definições do PC, raio-x do HUD;
-           17: a barra do ping e o editor do HUD; 18: a grade do celular; 19: raio-x da lista e da barra de tarefas;
-           20: o editor novo e a lista e a barra de tarefas; 21: raio-x do chat e da reunião; 22: o modo escuro;
-           23 (esta, 12/11, depois do celular): os botões movidos (menu, mapa) e o ANALÓGICO de toque (ligado no PC pelo
-              SetTouchType) não podem andar com o boneco; o analógico no editor e escuro; a barra do ping no meio. */
+           17 a 23: barra do ping, editor do HUD, grade do celular, tarefas, chat, modo escuro, botões que andavam;
+           24 (esta, 12/11 noite): o LIXO por segundo (bytes alocados na linha principal, onde rodam os mods) em cada situação:
+              normal, modo escuro completo, chat aberto escuro, reunião escura e reunião normal. Antes e depois de deixar leve. */
         const bool FazOpcoes = false;
         const int QualMapa = 0;   // 0 Skeld, 1 Mira, 2 Polus, 4 Airship, 5 Fungle
 
@@ -111,142 +110,57 @@ namespace CriCriMods
             Seguro("monitor 2", CalarMonitor2);
             yield return 1f;
             var h = HudManager.Instance;
-
-            // o analógico do celular, ligado no PC
-            Seguro("analogico", () => h.SetTouchType(ControlTypes.VirtualJoystick));
-            yield return 1.5f;
-            Seguro("joysticks", () =>
-            {
-                Diz("joystick do jogo: " + (h.joystick != null ? (h.joystick.TryCast<VirtualJoystick>() != null ? "VirtualJoystick" : "outro") : "nulo"));
-                var js = h.Joysticks;
-                for (int i = 0; js != null && i < js.Length; i++) if (js[i] != null) Diz("Joysticks[" + i + "] " + Caminho(js[i].transform) + " ativo " + js[i].gameObject.activeInHierarchy + " vj " + (js[i].GetComponentInChildren<VirtualJoystick>(true) != null));
-                foreach (var go in LayoutDoHud.Pecas[Array.FindIndex(LayoutDoHud.Pecas, x => x.Chave == "joystick")].Objetos(h)) { Diz("peca joystick: " + Caminho(go.transform) + " aspect " + (go.GetComponent<AspectPosition>() != null)); _linhas = 0; Arvore(go.transform, 0, 3); }
-            });
-            Foto("eu23-1-analogico");
-            yield return 0.3f;
-            // o ping online em cima do nome da sala (a foto do celular): a barra tem de descer
-            BarraDoPing.TesteMs = 45;
-            yield return 1.2f;
-            Seguro("sala", () => Diz("barra online com a sala: " + Barra() + " | desvio " + BarraDoPing.TesteDesvio.ToString("0.00", Inv) + " | sala " + (h.roomTracker != null && h.roomTracker.text != null ? "[" + h.roomTracker.text.text + "] " + V(h.roomTracker.text.GetComponent<MeshRenderer>().bounds.center) : "-") + " | " + MeioDaBarra()));
-            Foto("eu23-1b-ping-e-sala");
-            yield return 0.3f;
-            BarraDoPing.TesteMs = -1;
-
-            // o editor: o analógico, o menu e o mapa em outro lugar; e escuro completo
-            Seguro("abrir editor", EditorDoHud.Abrir);
-            yield return 1.2f;
-            Foto("eu23-2-editor");
-            yield return 0.3f;
-            Seguro("mexer", () =>
-            {
-                EditorDoHud.TesteEscolher("joystick"); EditorDoHud.TesteMover(1.6f, 0.9f); EditorDoHud.TesteTamanho(1.2f);
-                EditorDoHud.TesteEscolher("menu"); EditorDoHud.TesteMover(-2.5f, -1.2f);
-                EditorDoHud.TesteEscolher("mapa"); EditorDoHud.TesteMover(-1.2f, -0.6f);
-                EditorDoHud.TesteEscolher(null);
-                LayoutDoHud.PorModoEscuro(LayoutDoHud.EscuroCompleto);
-            });
+            var chat = h.Chat;
+            PlayerControl outro = null;
+            Seguro("outro", () => { foreach (var pc in PlayerControl.AllPlayerControls) if (pc != null && pc != PlayerControl.LocalPlayer) { outro = pc; break; } });
+            Seguro("mensagens", () => { chat.SetVisible(true); for (int i = 0; i < 6; i++) chat.AddChat(i % 2 == 0 ? PlayerControl.LocalPlayer : (outro ?? PlayerControl.LocalPlayer), "mensagem de teste numero " + i, false); chat.ForceClosed(); });
             yield return 1f;
-            Diz("editor: " + EditorDoHud.TesteEstado());
-            Foto("eu23-3-editor-mexido");
-            yield return 0.3f;
-            Seguro("pronto", () => EditorDoHud.TesteBotao("Pronto"));
-            yield return 1.5f;
-            Seguro("na tela", () => NaTela("parado"));
-            Foto("eu23-4-parado");
-            yield return 0.3f;
 
-            // andar: o boneco vai para outro canto do mapa (a câmera segue); os botões têm de ficar onde estavam na TELA
-            var inicio = PlayerControl.LocalPlayer.transform.position;
-            Seguro("andar 1", () => PlayerControl.LocalPlayer.NetTransform.SnapTo((Vector2)inicio + new Vector2(7f, -2f)));
-            yield return 3f;
-            Seguro("na tela", () => NaTela("depois de andar 7"));
-            Seguro("joystick escuro", () => { foreach (var go in LayoutDoHud.Pecas[Array.FindIndex(LayoutDoHud.Pecas, x => x.Chave == "joystick")].Objetos(h)) { _linhas = 0; Arvore(go.transform, 0, 3); } });
-            Foto("eu23-5-depois-de-andar");
-            yield return 0.3f;
-            Seguro("andar 2", () => PlayerControl.LocalPlayer.NetTransform.SnapTo((Vector2)inicio + new Vector2(-6f, 4f)));
-            yield return 3f;
-            Seguro("na tela", () => NaTela("depois de andar -6"));
-            // a barra do ping com rede de mentira (o wifi) no meio
-            BarraDoPing.TesteMs = 45;
+            long b0 = 0; int g0 = 0; float t0 = 0;
+            // A) normal
+            Marca(out b0, out g0, out t0); yield return 5f; Lixo("A normal", b0, g0, t0);
+            // B) modo escuro completo, parado
+            Seguro("completo", () => LayoutDoHud.PorModoEscuro(LayoutDoHud.EscuroCompleto));
+            yield return 2f;
+            Marca(out b0, out g0, out t0); yield return 5f; Lixo("B escuro completo", b0, g0, t0);
+            // C) chat aberto, escuro
+            Seguro("abrir chat", () => chat.Toggle());
+            yield return 2f;
+            Marca(out b0, out g0, out t0); yield return 5f; Lixo("C chat aberto escuro", b0, g0, t0);
+            Seguro("fechar chat", () => chat.ForceClosed());
             yield return 1f;
-            Seguro("barra", () => Diz("barra: " + Barra() + " | " + MeioDaBarra()));
-            Foto("eu23-6-andou-de-novo-e-barra");
+            // D) reunião escura
+            Seguro("reuniao", () => PlayerControl.LocalPlayer.CmdReportDeadBody(null));
+            yield return 8f;
+            Marca(out b0, out g0, out t0); yield return 5f; Lixo("D reuniao escura", b0, g0, t0);
+            Foto("eu24-reuniao-escura");
             yield return 0.3f;
+            // E) reunião normal
+            Seguro("normal", () => LayoutDoHud.PorModoEscuro(LayoutDoHud.EscuroNormal));
+            yield return 1f;
+            Marca(out b0, out g0, out t0); yield return 5f; Lixo("E reuniao normal", b0, g0, t0);
             Seguro("limpar", LayoutDoHud.VoltarAoPadrao);
-            yield return 1f;
-            Seguro("na tela", () => NaTela("padrao"));
-            Foto("eu23-7-padrao");
-            yield return 0.3f;
+            yield return 0.5f;
         }
 
-        // onde cada peça movida está na TELA (0 a 1); não pode mudar quando o boneco anda
-        static void NaTela(string quando)
+        static long _hud0, _tr0, _bu0, _ol0, _bb0;
+        static void Marca(out long bytes, out int gcs, out float t)
         {
-            var h = HudManager.Instance;
-            var cam = h.UICamera;
-            var sb = new System.Text.StringBuilder(quando + " |");
-            foreach (var chave in new[] { "joystick", "menu", "mapa", "info" })
-            {
-                var peca = LayoutDoHud.Pecas[Array.FindIndex(LayoutDoHud.Pecas, x => x.Chave == chave)];
-                foreach (var go in peca.Objetos(h))
-                {
-                    if (go == null || !go.activeInHierarchy) continue;
-                    var v = cam.WorldToViewportPoint(go.transform.position);
-                    var col = go.GetComponentInChildren<Collider2D>(false);
-                    var vc = col != null ? cam.WorldToViewportPoint(col.bounds.center) : Vector3.zero;
-                    sb.Append(' ').Append(chave).Append(" tela (").Append(v.x.ToString("0.000", Inv)).Append(',').Append(v.y.ToString("0.000", Inv)).Append(')')
-                      .Append(col != null ? " toque (" + vc.x.ToString("0.000", Inv) + "," + vc.y.ToString("0.000", Inv) + ")" : "").Append(" |");
-                }
-            }
-            sb.Append(" boneco ").Append(V(PlayerControl.LocalPlayer.transform.position));
-            Diz(sb.ToString());
+            _hud0 = Otimizacao.BytesDoHud;
+            _tr0 = Escuro.TesteTrocas; _bu0 = Escuro.TesteBuscas; _ol0 = Escuro.TesteOlhados; _bb0 = Escuro.TesteBytesBusca; Escuro.TesteQuemTroca = "";
+            bytes = GC.GetAllocatedBytesForCurrentThread();
+            gcs = GC.CollectionCount(0);
+            t = Time.realtimeSinceStartup;
         }
 
-        static string MeioDaBarra()
+        static void Lixo(string onde, long b0, int g0, float t0)
         {
-            var r = BarraDoPing.Raiz;
-            if (r == null) return "sem barra";
-            var cam = HudManager.Instance.UICamera;
-            float min = float.MaxValue, max = float.MinValue;
-            foreach (var x in r.GetComponentsInChildren<Renderer>(false)) { if (x == null) continue; var b = x.bounds; min = Math.Min(min, b.min.x); max = Math.Max(max, b.max.x); }
-            var t = r.GetComponentInChildren<TMPro.TextMeshPro>(false);
-            if (t != null) { t.ForceMeshUpdate(); var tb = t.textBounds; var c = t.transform.TransformPoint(tb.center); var e = t.transform.TransformVector(tb.extents); min = Math.Min(min, c.x - e.x); max = Math.Max(max, c.x + e.x); }
-            float meio = (min + max) / 2f;
-            var ping = BarraDoPing.PingDoJogo;
-            return "meio da barra na tela " + cam.WorldToViewportPoint(new Vector3(meio, r.transform.position.y, r.transform.position.z)).x.ToString("0.000", Inv)
-                + " (o ping do jogo fica em " + (ping != null ? cam.WorldToViewportPoint(ping.transform.position).x.ToString("0.000", Inv) : "-") + ")";
+            float dt = Math.Max(0.001f, Time.realtimeSinceStartup - t0);
+            long b = GC.GetAllocatedBytesForCurrentThread() - b0;
+            Diz("[lixo] " + onde + ": " + (b / dt / 1024f).ToString("0.0", Inv) + " KB/s alocados na linha principal, " + (GC.CollectionCount(0) - g0) + " coletas em " + dt.ToString("0.0", Inv) + " s | so o HUD do mod: " + ((Otimizacao.BytesDoHud - _hud0) / dt / 1024f).ToString("0.0", Inv) + " KB/s"
+                + " | escuro: " + ((Escuro.TesteTrocas - _tr0) / dt).ToString("0", Inv) + " trocas/s, " + ((Escuro.TesteOlhados - _ol0) / dt).ToString("0", Inv) + " desenhos olhados/s, "
+                + (Escuro.TesteBuscas - _bu0) + " buscas (" + ((Escuro.TesteBytesBusca - _bb0) / dt / 1024f).ToString("0.0", Inv) + " KB/s) | quem troca: " + Escuro.TesteQuemTroca);
         }
-
-        static int _linhas;
-        static string N(Component c) => c == null ? "nulo" : c.name + (c.gameObject.activeInHierarchy ? "" : "(desl)") + " " + V(c.transform.position);
-        static string N(GameObject g) => g == null ? "nulo" : N(g.transform);
-
-        static void Arvore(Transform t, int nivel, int max)
-        {
-            if (t == null || nivel > max || _linhas > 170) return;
-            _linhas++;
-            var sr = t.GetComponent<SpriteRenderer>();
-            var tm = t.GetComponent<TMPro.TextMeshPro>();
-            var col = t.GetComponent<Collider2D>();
-            var ap = t.GetComponent<AspectPosition>();
-            var comps = new System.Text.StringBuilder();
-            foreach (var c in t.GetComponents<Component>()) if (c != null) { var n = c.GetIl2CppType().Name; if (n != "Transform") comps.Append(n).Append(','); }
-            string spr = "";
-            if (sr != null)
-            {
-                var s = sr.sprite;
-                string pack = "";
-                if (s != null) { try { pack = s.packed ? (" pack " + s.packingMode + "/" + s.packingRotation) : " solto"; } catch { pack = " ?"; } }
-                spr = " | sprite " + (s != null ? s.name + " tex " + (s.texture != null ? s.texture.name + " " + s.texture.width + "x" + s.texture.height : "-") + pack : "-")
-                    + " cor " + Cor(sr.color) + " modo " + sr.drawMode + " shader " + (sr.sharedMaterial != null && sr.sharedMaterial.shader != null ? sr.sharedMaterial.shader.name : "-") + (sr.enabled ? "" : " (off)");
-            }
-            Diz(new string(' ', nivel * 2) + t.name + (t.gameObject.activeSelf ? "" : " (desl)") + " | " + comps + spr
-                + (tm != null ? " | texto [" + (tm.text.Length > 30 ? tm.text.Substring(0, 30) : tm.text) + "] cor " + Cor(tm.color) : "")
-                + (col != null ? " | colisor" : "") + (ap != null ? " | aspect " + ap.Alignment + " " + V(ap.DistanceFromEdge) : ""));
-            for (int i = 0; i < t.childCount; i++) Arvore(t.GetChild(i), nivel + 1, max);
-        }
-
-        static string Cor(Color c) => "(" + c.r.ToString("0.00", Inv) + "," + c.g.ToString("0.00", Inv) + "," + c.b.ToString("0.00", Inv) + "," + c.a.ToString("0.00", Inv) + ")";
 
         static string Caminho(Transform t)
         {

@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- CriCri Mods: home screen. One action: JOGAR, fixed at the bottom in thumb reach. Above it, in reading order:
-     is the game ready (the real installed Among Us icon and version), who you play as, which mods are on.
-     Plain rows and spacing instead of nested cards; the accent color only on JOGAR. -->
+     is the game ready (the real installed Among Us icon), who you play as, which mods are on.
+     Plain rows and spacing instead of nested cards; the accent color only on JOGAR and on the switches that are on.
+     (11/11, ele: "design mais bonito e amigável, menos texto, menos complexidade") Every row starts with a 48dp mark and its
+     text starts at the same x (84dp), so the eye runs down one line; what is tappable and is not JOGAR uses the pale link
+     tone or a tonal button. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/selector_root"
@@ -21,7 +24,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingStart="20dp"
-            android:paddingTop="12dp"
+            android:paddingTop="8dp"
             android:paddingEnd="20dp">
 
             <LinearLayout
@@ -37,13 +40,15 @@
                     android:layout_weight="1"
                     android:text="@string/app_name"
                     android:textColor="?android:attr/textColorPrimary"
-                    android:textSize="24sp"
+                    android:textSize="22sp"
                     android:textStyle="bold" />
 
+                <!-- the glyph, not the 48dp touch box, lines up with the right edge of the content -->
                 <ImageButton
                     android:id="@+id/about_button"
                     android:layout_width="48dp"
                     android:layout_height="48dp"
+                    android:layout_marginEnd="-12dp"
                     android:background="?android:attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/about_title"
                     android:src="@drawable/ic_info" />
@@ -54,21 +59,22 @@
                 android:id="@+id/bloco_jogo"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="12dp"
                 android:gravity="center_vertical"
-                android:minHeight="64dp"
+                android:minHeight="56dp"
                 android:orientation="horizontal">
 
+                <!-- decorative for the screen reader: "Among Us" is read right after it -->
                 <ImageView
                     android:id="@+id/game_icon"
-                    android:layout_width="52dp"
-                    android:layout_height="52dp"
-                    android:contentDescription="@string/game_icon" />
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:importantForAccessibility="no" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
+                    android:layout_marginStart="16dp"
                     android:layout_weight="1"
                     android:orientation="vertical">
 
@@ -90,164 +96,191 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- the habit of opening the plain game: a home-screen shortcut that looks like it, with a MOD badge -->
+            <!-- the habit of opening the plain game: a home-screen shortcut that looks like it, with a MOD badge.
+                 Gone once the shortcut is on the home screen (SelectorActivity.refresh). -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/atalho_button"
                 style="@style/Widget.Material3.Button.TonalButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="66dp"
-                android:layout_marginTop="6dp"
+                android:layout_marginStart="64dp"
+                android:layout_marginTop="4dp"
                 android:minHeight="48dp"
                 android:text="@string/atalho_botao"
                 android:visibility="gone" />
 
-            <!-- the account -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="28dp"
-                android:text="@string/conta_title"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <!-- who you play as; the action sits under the name so a long name or "Entrar de novo" never squeezes it -->
+            <!-- the accounts: only with the game installed (without it the one thing to do is installing it) -->
             <LinearLayout
-                android:id="@+id/bloco_conta"
+                android:id="@+id/secao_conta"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
                 android:orientation="vertical">
 
-                <LinearLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
+                    android:layout_marginTop="24dp"
+                    android:accessibilityHeading="true"
+                    android:text="@string/conta_title"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <!-- who you play as; the action sits under the name so a long name or "Entrar de novo" never squeezes it -->
+                <LinearLayout
+                    android:id="@+id/bloco_conta"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="vertical">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="56dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/conta_avatar"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:background="@drawable/bg_avatar"
+                            android:gravity="center"
+                            android:importantForAccessibility="no"
+                            android:textColor="?android:attr/textColorPrimary"
+                            android:textSize="18sp"
+                            android:textStyle="bold" />
+
+                        <LinearLayout
+                            android:id="@+id/conta_textos"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="16dp"
+                            android:layout_weight="1"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/conta_nome"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textColor="?android:attr/textColorPrimary"
+                                android:textSize="16sp" />
+
+                            <TextView
+                                android:id="@+id/conta_status"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:paddingTop="2dp"
+                                android:textColor="?android:attr/textColorSecondary"
+                                android:textSize="14sp" />
+                        </LinearLayout>
+
+                        <ImageButton
+                            android:id="@+id/conta_mais"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:layout_marginEnd="-12dp"
+                            android:background="?android:attr/selectableItemBackgroundBorderless"
+                            android:contentDescription="@string/conta_mais"
+                            android:src="@drawable/ic_more_vert" />
+                    </LinearLayout>
+
+                    <!-- only while there is something to do: guest ("Entrar") or a login that expired ("Entrar de novo") -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/conta_entrar"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="64dp"
+                        android:minHeight="48dp"
+                        android:text="@string/conta_entrar_curto" />
+                </LinearLayout>
+
+                <!-- the CRICRI BR account (tools/ChaveBr). It links by itself in the first CRICRI BR lobby, so the row is a state,
+                     not a task: the link below it is the way out when that did not happen, the ⋮ appears only once linked. -->
+                <LinearLayout
+                    android:id="@+id/bloco_chave_br"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
                     android:minHeight="56dp"
                     android:orientation="horizontal">
 
-                    <TextView
-                        android:id="@+id/conta_avatar"
-                        android:layout_width="44dp"
-                        android:layout_height="44dp"
-                        android:background="@drawable/bg_avatar"
-                        android:gravity="center"
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="4dp"
                         android:importantForAccessibility="no"
-                        android:textColor="@color/cricri_accent"
-                        android:textSize="18sp"
-                        android:textStyle="bold" />
+                        android:src="@drawable/ic_mod_servidor" />
 
                     <LinearLayout
-                        android:id="@+id/conta_textos"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="14dp"
+                        android:layout_marginStart="16dp"
                         android:layout_weight="1"
-                        android:orientation="vertical">
+                        android:orientation="vertical"
+                        android:paddingTop="6dp">
 
                         <TextView
-                            android:id="@+id/conta_nome"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:ellipsize="end"
-                            android:maxLines="1"
+                            android:text="@string/chave_br_titulo"
                             android:textColor="?android:attr/textColorPrimary"
                             android:textSize="16sp" />
 
                         <TextView
-                            android:id="@+id/conta_status"
+                            android:id="@+id/chave_br_status"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:paddingTop="2dp"
                             android:textColor="?android:attr/textColorSecondary"
-                            android:textSize="13sp" />
+                            android:textSize="14sp" />
+
+                        <!-- only while a link opened on the site is waiting to be confirmed ("Abrir site") -->
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/chave_br_botao"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:minHeight="48dp"
+                            android:visibility="gone" />
+
+                        <TextView
+                            android:id="@+id/chave_br_colar_link"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="?attr/selectableItemBackground"
+                            android:gravity="center_vertical"
+                            android:minHeight="48dp"
+                            android:text="@string/chave_br_outro_jeito"
+                            android:textColor="@color/cricri_link"
+                            android:textSize="14sp"
+                            android:visibility="gone" />
                     </LinearLayout>
 
                     <ImageButton
-                        android:id="@+id/conta_mais"
-                        android:layout_width="44dp"
+                        android:id="@+id/chave_br_mais"
+                        android:layout_width="48dp"
                         android:layout_height="48dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginEnd="-12dp"
                         android:background="?android:attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="@string/conta_mais"
-                        android:src="@drawable/ic_more_vert" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/conta_entrar"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="58dp"
-                    android:minHeight="48dp"
-                    android:text="@string/conta_entrar_curto" />
-            </LinearLayout>
-
-            <!-- the CRICRI BR mod key (tools/ChaveBr): what lets the mod read and change the room options there -->
-            <LinearLayout
-                android:id="@+id/bloco_chave_br"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center_vertical"
-                android:minHeight="56dp"
-                android:orientation="horizontal">
-
-                <ImageView
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:importantForAccessibility="no"
-                    android:src="@drawable/ic_mod_servidor" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="14dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/chave_br_titulo"
-                        android:textColor="?android:attr/textColorPrimary"
-                        android:textSize="16sp" />
-
-                    <TextView
-                        android:id="@+id/chave_br_status"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingTop="2dp"
-                        android:textColor="?android:attr/textColorSecondary"
-                        android:textSize="13sp" />
-
-                    <TextView
-                        android:id="@+id/chave_br_colar_link"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:background="?attr/selectableItemBackground"
-                        android:gravity="center_vertical"
-                        android:minHeight="48dp"
-                        android:text="@string/chave_br_outro_jeito"
-                        android:textColor="?attr/colorPrimary"
-                        android:textSize="14sp"
+                        android:contentDescription="@string/chave_br_mais"
+                        android:src="@drawable/ic_more_vert"
                         android:visibility="gone" />
                 </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/chave_br_botao"
-                    style="@style/Widget.Material3.Button.TonalButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:minHeight="48dp" />
             </LinearLayout>
 
             <!-- the mods -->
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="28dp"
+                android:layout_marginTop="24dp"
+                android:accessibilityHeading="true"
                 android:text="@string/mods_title"
                 android:textColor="?android:attr/textColorSecondary"
                 android:textSize="14sp"
@@ -257,44 +290,53 @@
                 android:id="@+id/mods_list"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:orientation="vertical" />
 
             <View
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
                 android:layout_weight="1"
-                android:minHeight="32dp" />
+                android:minHeight="20dp" />
 
-            <TextView
-                android:id="@+id/tutorial_link"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackground"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:text="@string/guia_ver_de_novo"
-                android:textColor="@color/cricri_accent"
-                android:textSize="13sp" />
-
-            <TextView
+            <!-- the small print: the guide again, the licenses, Innersloth's notice -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/disclaimer"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="11sp" />
+                android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/about_link"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:background="?android:attr/selectableItemBackground"
-                android:gravity="center_vertical"
-                android:minHeight="48dp"
-                android:text="@string/open_source_notice"
-                android:textColor="?android:attr/textColorSecondary"
-                android:textSize="11sp" />
+                <TextView
+                    android:id="@+id/tutorial_link"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
+                    android:text="@string/guia_ver_de_novo"
+                    android:textColor="@color/cricri_link"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:id="@+id/about_link"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
+                    android:text="@string/open_source_notice"
+                    android:textColor="@color/cricri_link"
+                    android:textSize="14sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:layout_marginBottom="16dp"
+                    android:lineSpacingMultiplier="1.1"
+                    android:text="@string/disclaimer"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
         </LinearLayout>
     </ScrollView>
 
@@ -317,13 +359,15 @@
             android:layout_height="wrap_content"
             android:gravity="center"
             android:textColor="?android:attr/textColorSecondary"
-            android:textSize="13sp" />
+            android:textSize="14sp" />
 
+        <!-- minHeight, not a fixed height: with the system font at its largest the label must not be cut -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/play_button"
             android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:minHeight="64dp"
             android:text="@string/play"
             android:textColor="@android:color/white"
             android:textSize="20sp"
@@ -334,11 +378,12 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/install_game_button"
             android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:layout_marginTop="8dp"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:minHeight="64dp"
             android:text="@string/install_game"
             android:textColor="@android:color/white"
-            android:textSize="18sp"
+            android:textSize="20sp"
             android:textStyle="bold"
             android:visibility="gone"
             app:backgroundTint="@color/cricri_accent"

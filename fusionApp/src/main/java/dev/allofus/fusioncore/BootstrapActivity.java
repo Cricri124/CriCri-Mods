@@ -4,9 +4,11 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Looper;
 import android.provider.OpenableColumns;
@@ -20,6 +22,7 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import java.io.BufferedReader;
@@ -34,6 +37,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import dev.allofus.fusioncore.hooks.InstrumentationHooks;
@@ -41,6 +45,8 @@ import dev.allofus.fusioncore.hooks.ActivityManagerHooks;
 import dev.allofus.fusioncore.hooks.NotificationManagerHooks;
 import dev.allofus.fusioncore.hooks.PackageManagerHooks;
 import dev.allofus.fusioncore.hooks.GameRuntime;
+import dev.allofus.fusioncore.tools.Abertura;
+import dev.allofus.fusioncore.tools.Aparelho;
 import dev.allofus.fusioncore.tools.FusionConfig;
 import dev.allofus.fusioncore.tools.GlobalMetadata;
 import dev.allofus.fusioncore.tools.Il2CppApiMapper;
@@ -62,6 +68,37 @@ public class BootstrapActivity extends AppCompatActivity {
     public static final String EXTRA_USE_IL2CPP2MONO = "use_il2cpp2mono";
     public static final String BACKUP_UNITY_VERSION = "2017.0.0";
     public static final String IL2CPP_API_MAP = "il2cpp-api.map";
+
+    // CriCri Mods (11/11): o que a pessoa lê quando não abre. Uma frase cada; ficam aqui, junto de quem as mostra (ver Aparelho).
+    private static final String FALHA_GERAL = "Algo deu errado ao preparar o jogo. Abra o app de novo: ele oferece o relatório para você mandar.";
+    private static final String FALHA_DADOS = "Não consegui copiar os dados do Among Us. Confira o espaço do celular e toque em JOGAR de novo.";
+    private static final String FALHA_PECAS = "Não consegui preparar as peças dos mods. Confira o espaço do celular e toque em JOGAR de novo.";
+    private static final String FALHA_REDE = "Não consegui baixar uma peça do jogo (é só na primeira vez). Se estiver no Wi-Fi, tente pelos dados móveis e toque em JOGAR de novo.";
+    private static final String FALHA_ESTRANHOS ="Achei arquivos estranhos na pasta dos mods e não consegui apagar. Reinicie o celular e tente de novo.";
+
+    /**
+     * CriCri Mods (11/11, "segundo plano no meio da preparação"): a preparação roda numa linha própria e a primeira vez demora; a pessoa sai
+     * do app e volta. Então:
+     *  - só UMA preparação por vez no processo (uma tela recriada pelo Android se junta à que já está rodando, não começa outra);
+     *  - quem atualiza a tela é sempre a tela ATUAL, não a que começou a preparação;
+     *  - o jogo só é aberto com o app na frente (o Android 10+ recusa calado abrir uma tela a partir do fundo: a pessoa voltava e não havia
+     *    nada). Se ficou pronto no fundo, abre quando ela voltar.
+     */
+    private static final AtomicBoolean emAndamento = new AtomicBoolean(false);
+    // (12/11, pendência da revisão de 11/11) A preparação começa num post da tela; se a tela for destruída antes do post rodar (o
+    // Android fecha a tela logo ao abrir), o post nunca roda e a marca acima ficava presa: a próxima abertura no mesmo processo
+    // "se juntava" a uma preparação que não existia e parava na tela de carregamento. Quem pôs a marca e não começou, solta.
+    private static final AtomicBoolean fluxoComecou = new AtomicBoolean(false);
+    private boolean poasAMarca;
+    private static volatile BootstrapActivity atual;
+    private static volatile Lancar lancamentoPendente;
+    private static volatile String ultimoStatus;
+
+    private interface Lancar {
+        void com(BootstrapActivity tela);
+    }
+
+    private volatile boolean visivel;
     private TextView statusView;
     private TextView progressDetailsView;
     private ProgressBar spinnerProgress;
@@ -88,12 +125,15 @@ public class BootstrapActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         Utilities.init(this);
+        // (12/11) O gravador de erros tambem liga aqui: se o Android recriar o processo direto nesta tela (sem a tela inicial), um erro
+        // de Java na abertura ainda deixa o arquivo com a pilha para o relatorio. Uma vez por processo (CrashDetector).
+        try { dev.allofus.fusioncore.tools.CrashDetector.init(this); } catch (Exception ignored) { }
         setContentView(R.layout.activity_bootstrap);
         statusView = findViewById(R.id.bootstrap_status);
         progressDetailsView = findViewById(R.id.bootstrap_progress_details);
         spinnerProgress = findViewById(R.id.bootstrap_progress);
         downloadProgress = findViewById(R.id.bootstrap_download_progress);
-        setPhaseStatus(getString(R.string.bootstrap_status_preparing));
+        atual = this;
 
         String targetPackage = getIntent().getStringExtra(EXTRA_TARGET_PACKAGE);
         if (targetPackage == null || targetPackage.isEmpty()) {
@@ -101,29 +141,108 @@ public class BootstrapActivity extends AppCompatActivity {
             return;
         }
 
+        if (GameRuntime.jogoAberto()) {
+            // (11/11, "queda na volta do login") O jogo já está aberto neste processo e alguém tocou em JOGAR de novo (a tela inicial pode
+            // aparecer por cima do jogo na volta do login). Preparar tudo outra vez por cima do jogo vivo (ganchos, bibliotecas, arquivos
+            // que ele está usando) é pedir queda: esta tela só sai da frente e o jogo, que está logo atrás, volta.
+            Log.i(TAG, "The game is already open in this process: going back to it");
+            finish();
+            return;
+        }
+
+        if (!emAndamento.compareAndSet(false, true)) {
+            // uma preparação já está rodando neste processo (esta tela foi recriada): só mostra por onde ela anda
+            Log.i(TAG, "Bootstrap already running: this screen joins it");
+            String status = ultimoStatus;
+            if (status != null && statusView != null) statusView.setText(status);
+            return;
+        }
+        poasAMarca = true;
+        fluxoComecou.set(false);
+        setPhaseStatus(getString(R.string.bootstrap_status_preparing));
+
         // Let the loading screen render first, then perform initialization work.
-        statusView.post(() -> new Thread(() -> runBootstrapFlow(targetPackage), "bootstrap-flow").start());
+        statusView.post(() -> new Thread(() -> {
+            fluxoComecou.set(true);
+            try {
+                runBootstrapFlow(targetPackage);
+            } catch (Throwable t) {
+                falhar(FALHA_GERAL, "Unexpected failure in the bootstrap flow", t, true);
+            }
+        }, "bootstrap-flow").start());
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        visivel = true;
+        atual = this;
+        Lancar pendente = lancamentoPendente;
+        if (pendente != null) {
+            lancamentoPendente = null;
+            Log.i(TAG, "The app is back in front: opening the game that was ready");
+            pendente.com(this);
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        visivel = false;
+        super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (atual == this) atual = null;
+        // a preparação desta tela nunca começou (o post não rodou): solta a marca para a próxima abertura
+        if (poasAMarca && !fluxoComecou.get()) {
+            emAndamento.set(false);
+            Log.i(TAG, "Bootstrap screen closed before the flow started: mark released");
+        }
+        super.onDestroy();
     }
 
     private void runBootstrapFlow(String targetPackage) {
+        Context appContext = getApplicationContext();
+        File appDataDir = new File(appContext.getFilesDir(), targetPackage);
+        Abertura.ouvir(new Abertura.Ouvinte() {
+            @Override public void etapa(String nome, int indice, int total) {
+            }
+
+            @Override public void progresso(long feito, long total) {
+                // (11/11, app-telas) "Copiando o jogo…" só aparece quando há mesmo o que copiar (o andamento só vem nesse caso); antes a
+                // frase "(só na primeira vez)" piscava em toda abertura
+                setBytesStatus(getString(R.string.bootstrap_status_copy_assets), feito, total);
+            }
+        });
+        Abertura.comecar(appContext, appDataDir);
+
+        // CriCri Mods (11/11, "erros de compatibilidade"): o aparelho e o jogo servem? Antes de copiar, descompactar ou baixar qualquer coisa.
+        Abertura.etapa(Abertura.CONFERIR);
+        Aparelho.Problema problema = Aparelho.conferir(appContext, targetPackage, new File(getRuntimeDir(appContext), targetPackage));
+        if (problema != null) {
+            falhar(problema.mensagem, "Device check: " + problema.codigo, null, false);
+            return;
+        }
+
         Context gameContext;
         try {
             gameContext = createPackageContext(targetPackage, CONTEXT_IGNORE_SECURITY | CONTEXT_INCLUDE_CODE);
         } catch (Exception e) {
-            failAndFinish("Failed to create package context for target package: " + targetPackage, e);
+            falhar(FALHA_GERAL, "Failed to create package context for target package: " + targetPackage, e, true);
             return;
         }
 
         try {
             gameContext = GameRuntime.prepareGameContext(gameContext, getClassLoader());
         } catch (Exception e) {
-            failAndFinish("Failed to configure classes.", e);
+            falhar(FALHA_GERAL, "Failed to configure classes.", e, true);
             return;
         }
 
         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(targetPackage);
         if (launchIntent == null) {
-            failAndFinish("No launch intent for target package: " + targetPackage, null);
+            falhar(FALHA_GERAL, "No launch intent for target package: " + targetPackage, null, true);
             return;
         }
 
@@ -151,7 +270,7 @@ public class BootstrapActivity extends AppCompatActivity {
         }
 
         if (launcherComponent == null) {
-            failAndFinish("Failed to resolve launcher activity for target package: " + targetPackage, null);
+            falhar(FALHA_GERAL, "Failed to resolve launcher activity for target package: " + targetPackage, null, true);
             return;
         }
 
@@ -160,7 +279,10 @@ public class BootstrapActivity extends AppCompatActivity {
         // "locked" to whatever side the phone had when it opened, and the game then picked its own landscape side, so the picture
         // turned 180° at the switch. The loading screen now follows the same orientation rule as the game.
         runOnUiThread(() -> {
-            try { setRequestedOrientation(targetOrientation); } catch (Exception ignored) {}
+            try {
+                BootstrapActivity tela = atual;
+                (tela != null ? tela : this).setRequestedOrientation(targetOrientation);
+            } catch (Exception ignored) {}
         });
 
         boolean useOriginalLibUnity = getIntent().getBooleanExtra(EXTRA_USE_ORIGINAL_LIBUNITY, false);
@@ -169,15 +291,19 @@ public class BootstrapActivity extends AppCompatActivity {
 
         try {
             config = prepareConfig(
-                    getApplicationContext(),
+                    appContext,
                     gameContext,
                     launcherComponent,
                     targetPackage,
+                    appDataDir,
                     useOriginalLibUnity,
                     useIl2Cpp2Mono
             );
+        } catch (Falha f) {
+            falhar(f.paraAPessoa, f.getMessage(), f.getCause(), f.guardar);
+            return;
         } catch (Throwable t) {
-            failAndFinish("Failed while preparing Fusion runtime.", t);
+            falhar(FALHA_GERAL, "Failed while preparing Fusion runtime.", t, true);
             return;
         }
 
@@ -185,18 +311,20 @@ public class BootstrapActivity extends AppCompatActivity {
         try {
             launcherClass = gameContext.getClassLoader().loadClass(launcherComponent.getClassName());
         } catch (ClassNotFoundException e) {
-            Log.e(TAG, "Failed to get class for launcher activity!");
+            // (11/11) antes só escrevia no log e a tela de espera ficava para sempre
+            falhar(FALHA_GERAL, "Failed to get class for launcher activity: " + launcherComponent.getClassName(), e, true);
             return;
         }
 
+        Abertura.etapa(Abertura.GANCHOS);
         setPhaseStatus(getString(R.string.bootstrap_status_installing_hooks));
         try {
-            PackageManagerHooks.install(getApplicationContext(), gameContext);
-            ActivityManagerHooks.install(getApplicationContext(), gameContext);
-            NotificationManagerHooks.install(getApplicationContext(), gameContext);
+            PackageManagerHooks.install(appContext, gameContext);
+            ActivityManagerHooks.install(appContext, gameContext);
+            NotificationManagerHooks.install(appContext, gameContext);
             GameRuntime.install(gameContext);
         } catch (Exception e) {
-            failAndFinish("Failed to install base hooks", e);
+            falhar(FALHA_GERAL, "Failed to install base hooks", e, true);
             return;
         }
 
@@ -204,79 +332,111 @@ public class BootstrapActivity extends AppCompatActivity {
         final Context preparedGameContext = gameContext;
 
         try {
+            Abertura.etapa(Abertura.ABRIR);
             setPhaseStatus(getString(R.string.bootstrap_status_launching));
             initializeFusion(config);
-            runOnMainThread(() -> {
+            Lancar lancar = tela -> {
                 try {
-                    GameRuntime.initializeApplication(preparedGameContext, getApplicationContext());
-                    var intent = new Intent(this, launcherClass);
+                    GameRuntime.initializeApplication(preparedGameContext, appContext);
+                    var intent = new Intent(tela, launcherClass);
 
                     // Using the stub activity intent here avoids one extra layer of hooks running.
                     // Its not necessary but could be more performant.
-                    var intentWrapped = new Intent(this, StubActivity.class);
+                    var intentWrapped = new Intent(tela, StubActivity.class);
                     intentWrapped.putExtra(InstrumentationHooks.EXTRA_IS_DYNAMIC_ACTIVITY, true);
                     intentWrapped.putExtra(InstrumentationHooks.EXTRA_ORIGINAL_INTENT, intent);
                     intentWrapped.putExtra(InstrumentationHooks.EXTRA_FUSION_CONFIG, config);
                     intentWrapped.putExtra(InstrumentationHooks.EXTRA_TARGET_ORIENTATION, targetOrientation);
-                    startActivity(intentWrapped);
-                    finish();
+                    tela.startActivity(intentWrapped);
+                    tela.finish();
+                    Abertura.fim(true, null);
+                    emAndamento.set(false);
                 } catch (Throwable t) {
-                    failAndFinish("Failed to launch target app's launcher activity: " + className, t);
+                    falhar(FALHA_GERAL, "Failed to launch target app's launcher activity: " + className, t, true);
+                }
+            };
+            runOnMainThread(() -> {
+                BootstrapActivity tela = atual;
+                if (tela != null && tela.visivel && !tela.isFinishing()) {
+                    lancar.com(tela);
+                } else {
+                    Log.i(TAG, "The game is ready but the app is not in front: it opens when the player comes back");
+                    lancamentoPendente = lancar;
                 }
             });
         } catch (Exception e) {
-            failAndFinish("Failed to launch target app's launcher activity: " + className, e);
+            falhar(FALHA_GERAL, "Failed to launch target app's launcher activity: " + className, e, true);
+        }
+    }
+
+    /** Uma falha da preparação que já sabe o que dizer à pessoa. guardar = vira relatório oferecido na próxima abertura do app. */
+    private static final class Falha extends RuntimeException {
+        final String paraAPessoa;
+        final boolean guardar;
+
+        Falha(String paraAPessoa, String tecnico, Throwable causa, boolean guardar) {
+            super(tecnico, causa);
+            this.paraAPessoa = paraAPessoa;
+            this.guardar = guardar;
         }
     }
 
     private void setPhaseStatus(String status) {
+        ultimoStatus = status;
         runOnMainThread(() -> {
-            if (statusView != null) {
-                statusView.setText(status);
+            BootstrapActivity tela = atual;
+            if (tela == null) return;
+            if (tela.statusView != null) {
+                tela.statusView.setText(status);
             }
-            if (spinnerProgress != null) {
-                spinnerProgress.setVisibility(View.VISIBLE);
+            if (tela.spinnerProgress != null) {
+                tela.spinnerProgress.setVisibility(View.VISIBLE);
             }
-            if (downloadProgress != null) {
-                downloadProgress.setVisibility(View.GONE);
-                downloadProgress.setIndeterminate(false);
-                downloadProgress.setProgress(0);
+            if (tela.downloadProgress != null) {
+                tela.downloadProgress.setVisibility(View.GONE);
+                tela.downloadProgress.setIndeterminate(false);
+                tela.downloadProgress.setProgress(0);
             }
-            if (progressDetailsView != null) {
-                progressDetailsView.setVisibility(View.GONE);
-                progressDetailsView.setText("");
+            if (tela.progressDetailsView != null) {
+                tela.progressDetailsView.setVisibility(View.GONE);
+                tela.progressDetailsView.setText("");
             }
         });
     }
 
     private void setDownloadStatus(long downloadedBytes, long totalBytes) {
+        setBytesStatus(getString(R.string.bootstrap_status_downloading_libunity), downloadedBytes, totalBytes);
+    }
+
+    /** A barra com os números de uma etapa longa (baixar a peça, copiar os dados). status null = o texto da etapa fica como está. */
+    private void setBytesStatus(@Nullable String status, long doneBytes, long totalBytes) {
+        if (status != null) ultimoStatus = status;
         runOnMainThread(() -> {
-            if (spinnerProgress != null) {
-                spinnerProgress.setVisibility(View.GONE);
+            BootstrapActivity tela = atual;
+            if (tela == null) return;
+            if (tela.spinnerProgress != null) {
+                tela.spinnerProgress.setVisibility(View.GONE);
             }
-            long progress = Math.max(0L, Math.min(100L, (downloadedBytes * 100L) / totalBytes));
-            if (downloadProgress != null) {
-                downloadProgress.setVisibility(View.VISIBLE);
-                boolean hasTotal = totalBytes > 0L;
-                downloadProgress.setIndeterminate(!hasTotal);
+            // (11/11) totalBytes vem 0 ou -1 quando o servidor não diz o tamanho: a divisão por zero fechava o app no meio do download
+            boolean hasTotal = totalBytes > 0L;
+            int percent = hasTotal ? (int) Math.max(0L, Math.min(100L, (doneBytes * 100L) / totalBytes)) : 0;
+            if (tela.downloadProgress != null) {
+                tela.downloadProgress.setVisibility(View.VISIBLE);
+                tela.downloadProgress.setIndeterminate(!hasTotal);
                 if (hasTotal) {
-                    int percent = (int) progress;
-                    downloadProgress.setProgress(percent);
+                    tela.downloadProgress.setProgress(percent);
                 }
             }
-            if (statusView != null) {
-                statusView.setText(getString(R.string.bootstrap_status_downloading_libunity));
+            if (status != null && tela.statusView != null) {
+                tela.statusView.setText(status);
             }
-            if (progressDetailsView != null) {
-                progressDetailsView.setVisibility(View.VISIBLE);
-                int percent = totalBytes > 0L
-                        ? (int) progress
-                        : 0;
-                progressDetailsView.setText(getString(
+            if (tela.progressDetailsView != null) {
+                tela.progressDetailsView.setVisibility(View.VISIBLE);
+                tela.progressDetailsView.setText(tela.getString(
                         R.string.bootstrap_download_progress,
                         percent,
-                        formatBytes(downloadedBytes),
-                        totalBytes > 0L ? formatBytes(totalBytes) : "?"
+                        formatBytes(doneBytes),
+                        hasTotal ? formatBytes(totalBytes) : "?"
                 ));
             }
         });
@@ -297,17 +457,51 @@ public class BootstrapActivity extends AppCompatActivity {
     }
 
     private void failAndFinish(String message, Throwable error) {
+        falhar(FALHA_GERAL, message, error, error != null);
+    }
+
+    /**
+     * CriCri Mods (11/11, ele: "tem gente conseguindo e outras não"): não abriu. Antes era um aviso em inglês que some em 3 segundos e o app
+     * fechava. Agora: uma frase em português numa janela que espera a pessoa ler, o motivo técnico no log e na medida da abertura, e, quando
+     * não é uma causa conhecida do aparelho, um arquivo que a tela inicial oferece como relatório na próxima vez.
+     */
+    private void falhar(String paraAPessoa, String tecnico, @Nullable Throwable erro, boolean guardarRelatorio) {
+        if (erro != null) {
+            Log.e(TAG, tecnico, erro);
+        } else {
+            Log.e(TAG, tecnico);
+        }
+        String etapa = Abertura.etapaAtual();
+        Abertura.fim(false, tecnico + (erro == null ? "" : " (" + erro.getClass().getSimpleName() + ")"));
+        if (guardarRelatorio) Abertura.guardarFalha(etapa, tecnico, erro);
+        emAndamento.set(false);
+        lancamentoPendente = null;
         runOnMainThread(() -> {
-            if (error != null) {
-                Log.e(TAG, message, error);
-            } else {
-                Log.e(TAG, message);
+            BootstrapActivity tela = atual;
+            if (tela == null) tela = this;
+            final BootstrapActivity onde = tela;
+            if (onde.statusView != null) {
+                onde.statusView.setText(onde.getString(R.string.bootstrap_status_error));
             }
-            if (statusView != null) {
-                statusView.setText(getString(R.string.bootstrap_status_error));
+            if (onde.spinnerProgress != null) onde.spinnerProgress.setVisibility(View.GONE);
+            if (onde.downloadProgress != null) onde.downloadProgress.setVisibility(View.GONE);
+            if (onde.progressDetailsView != null) onde.progressDetailsView.setVisibility(View.GONE);
+            if (onde.isFinishing() || onde.isDestroyed()) {
+                Toast.makeText(onde.getApplicationContext(), paraAPessoa, Toast.LENGTH_LONG).show();
+                return;
             }
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-            finish();
+            try {
+                new AlertDialog.Builder(onde)
+                        .setTitle(R.string.bootstrap_status_error)
+                        .setMessage(paraAPessoa)
+                        .setPositiveButton(android.R.string.ok, null)
+                        .setOnDismissListener(d -> onde.finish())
+                        .show();
+            } catch (Exception e) {
+                // a janela não pôde ser mostrada (tela indo embora): o aviso curto ainda aparece
+                Toast.makeText(onde.getApplicationContext(), paraAPessoa, Toast.LENGTH_LONG).show();
+                onde.finish();
+            }
         });
     }
 
@@ -391,8 +585,19 @@ public class BootstrapActivity extends AppCompatActivity {
         return map;
     }
 
-    private void applyGlobalMetadataOverride(String targetPackage, File copiedData) {
+    /**
+     * Troca o global-metadata.dat da cópia por um que a pessoa escolheu (recurso do Fusion Core para jogos com o arquivo CIFRADO).
+     *
+     * CriCri Mods (11/11, revisão de segurança): o arquivo de troca fica na pasta externa do app, onde um cabo, um gerenciador de arquivos
+     * ou (até o Android 10) outro app escrevem. Um arquivo plantado ali era copiado por cima do oficial A CADA JOGAR e usado para gerar o
+     * interop, sem conferência nenhuma. O Among Us não cifra esse arquivo: a troca só vale quando o do jogo é mesmo cifrado; senão é ignorada.
+     */
+    private void applyGlobalMetadataOverride(String targetPackage, File copiedData, android.content.pm.ApplicationInfo gameInfo) {
         if (!GlobalMetadata.hasValidOverride(targetPackage)) {
+            return;
+        }
+        if (!GlobalMetadata.isEncrypted(gameInfo)) {
+            Log.w(TAG, "Ignoring the global-metadata override: this game's metadata is not encrypted");
             return;
         }
         File target = new File(copiedData, "Managed/Metadata/" + GlobalMetadata.FILE_NAME);
@@ -440,10 +645,23 @@ public class BootstrapActivity extends AppCompatActivity {
         }
         return map;
     }
+
+    /**
+     * A preparação, etapa por etapa (cada uma medida pela Abertura). O que cada uma custa por natureza:
+     *  - dados: copiar assets/bin/Data do APK do jogo para a pasta do app. Só na primeira vez e quando o Among Us atualiza (centenas de MB).
+     *  - unity: achar a versão da Unity (lê 32 bytes) e ter a libunity sem cortes: baixada uma vez (dezenas de MB, rede), depois só conferida.
+     *  - pecas: descompactar o BepInEx (8 MB) e o .NET (67 MB) de dentro do APK. Só quando o app é instalado/atualizado; roda EM PARALELO com
+     *    "dados" e "unity" desde 11/11 (são discos e pastas diferentes; na primeira abertura eram 4,6 s parados na fila, medidos em 08/11).
+     *  - mods: pôr os DLLs ligados em BepInEx/plugins (sha256 de poucos MB).
+     *  - seguranca: Integridade, a cada JOGAR: sha256 do núcleo do BepInEx (8 MB) e do interop (50 MB), agora em paralelo.
+     *  - conta: opções de tela, login do Google e chave do CRICRI BR (Keystore) para o processo do jogo.
+     *  - mapa: o jogo é ofuscado? (resposta guardada; antes lia duas libunity inteiras a cada JOGAR)
+     */
     private FusionConfig prepareConfig(Context appContext,
                                        Context gameContext,
                                        ComponentName launcherComponent,
                                        String targetPackage,
+                                       File appDataDir,
                                        boolean useOriginalLibUnity,
                                        boolean useIl2Cpp2Mono) {
 
@@ -451,22 +669,56 @@ public class BootstrapActivity extends AppCompatActivity {
         String appLibDir = appContext.getApplicationInfo().nativeLibraryDir;
 
         String targetGameAbi = resolveTargetGameAbi(gameLibDir);
-        File appDataDir = new File(appContext.getFilesDir(), targetPackage);
 
         File dataOnSdCard = Utilities.getExternalFusionCoreDirectory(targetPackage, null);
         File bepInExDir = new File(dataOnSdCard, "BepInEx");
         File codeCacheScoped = new File(getRuntimeDir(appContext), targetPackage);
 
-        setPhaseStatus(getString(R.string.bootstrap_status_copy_assets));
+        // As peças do app (BepInEx + .NET) não dependem do jogo: começam já, enquanto os dados do jogo são copiados e a libunity baixada.
+        final File dotnetDirNormal = new File(getRuntimeDir(appContext), "dotnet");
+        final boolean[] pecasOk = { true, true };
+        Thread pecas = null;
+        if (!useIl2Cpp2Mono) {
+            pecas = new Thread(() -> {
+                pecasOk[0] = Utilities.extractZipFromAssetsIfChanged(appContext, "BepInEx-arm64.zip", bepInExDir, "config/");
+                pecasOk[1] = Utilities.extractZipFromAssetsIfChanged(appContext, "dotnet-arm64.zip", dotnetDirNormal, null);
+            }, "bootstrap-pecas");
+            pecas.start();
+        }
+
+        Abertura.etapa(Abertura.DADOS);
+        setPhaseStatus(getString(R.string.bootstrap_status_detecting_version));
         File Assets = new File(dataOnSdCard, "Assets");
         File PersistentData = new File(dataOnSdCard, "PersistentData");
-        boolean copied = Utilities.copyAssets(gameContext.getApplicationInfo(), Assets);
+        File copiedData = new File(Assets, "bin/Data");
+        String carimboDoJogo = null;
+        long jogoAtualizadoEm = 0L;
+        try {
+            PackageInfo jogo = getPackageManager().getPackageInfo(targetPackage, 0);
+            long codigo = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? jogo.getLongVersionCode() : jogo.versionCode;
+            carimboDoJogo = codigo + "|" + jogo.lastUpdateTime;
+            jogoAtualizadoEm = jogo.lastUpdateTime;
+        } catch (Exception e) {
+            Log.w(TAG, "Could not read the game's version: the copy of its data is kept as it is");
+        }
+        boolean copied;
+        try {
+            copied = Utilities.copyAssets(gameContext.getApplicationInfo(), Assets, carimboDoJogo, jogoAtualizadoEm, Abertura::progresso);
+        } catch (Utilities.SemEspaco e) {
+            esperar(pecas);
+            throw new Falha(Aparelho.faltaEspaco(e.faltam), "No space to copy the game's data", e, false);
+        }
         if (!copied) {
             Log.e(TAG, "Failed to copy Unity Data assets! BepInEx may not work correctly.");
+            // sem o global-metadata.dat o BepInEx não gera o interop e nenhum mod carrega: melhor dizer agora do que abrir quebrado
+            if (!new File(copiedData, "Managed/Metadata/" + GlobalMetadata.FILE_NAME).isFile()) {
+                esperar(pecas);
+                throw new Falha(FALHA_DADOS, "Failed to copy the Unity Data assets", null, true);
+            }
         }
-        File copiedData = new File(Assets, "bin/Data");
-        applyGlobalMetadataOverride(targetPackage, copiedData);
+        applyGlobalMetadataOverride(targetPackage, copiedData, gameContext.getApplicationInfo());
         File DeobfuscationDir = new File(bepInExDir, "Deobfuscation");
+        Abertura.etapa(Abertura.UNITY);
         setPhaseStatus(getString(R.string.bootstrap_status_detecting_version));
         String version = UnityUtils.TryGetVersion(copiedData);
         if (!BuildConfig.ALLOW_RUNTIME_DOWNLOADS) {
@@ -483,6 +735,7 @@ public class BootstrapActivity extends AppCompatActivity {
             if (LibUnityDownloader.downloadAndCacheSafely(codeCacheScoped, version, targetGameAbi, new LibUnityDownloader.DownloadProgressListener() {
                 @Override
                 public void onDownloadStarted(String url, long totalBytes) {
+                    Abertura.marcarPrimeiraVez();
                     setDownloadStatus(0L, totalBytes);
                 }
 
@@ -503,28 +756,42 @@ public class BootstrapActivity extends AppCompatActivity {
             }
         }
 
+        Abertura.etapa(Abertura.PECAS);
         setPhaseStatus(getString(R.string.bootstrap_status_extracting_runtime));
         File dotnetDir;
         if(!useIl2Cpp2Mono) {
-            dotnetDir = new File(getRuntimeDir(appContext), "dotnet");
-            Utilities.extractZipFromAssetsIfChanged(appContext, "BepInEx-arm64.zip", bepInExDir, "config/");
+            dotnetDir = dotnetDirNormal;
+            esperar(pecas);
+            if (!pecasOk[0] || !pecasOk[1]) {
+                throw new Falha(FALHA_PECAS, "Failed to unpack " + (pecasOk[0] ? "dotnet-arm64.zip" : "BepInEx-arm64.zip"), null, true);
+            }
             if (!BuildConfig.ALLOW_RUNTIME_DOWNLOADS) {
                 Utilities.setUnityBaseLibrariesSource(bepInExDir, "");
             } else {
                 Utilities.setUnityBaseLibrariesSource(bepInExDir, Utilities.DEFAULT_UNITY_BASE_LIBRARIES_SOURCE);
                 if (!BACKUP_UNITY_VERSION.equals(version)) {
-                    UnityBaseLibraries.resolve(bepInExDir, version);
+                    // (12/11, instalação do zero do CriCri) a peça que o BepInEx baixa sozinho na primeira vez: sem ela o jogo fecha
+                    // logo ao abrir. Agora o app a deixa no lugar antes; se não der, avisa em vez de abrir o jogo quebrado.
+                    final String baixando = getString(R.string.bootstrap_status_downloading_libunity);
+                    if (!UnityBaseLibraries.resolve(bepInExDir, version, () -> {
+                        Abertura.marcarPrimeiraVez();
+                        setPhaseStatus(baixando);
+                    })) {
+                        throw new Falha(FALHA_REDE, "Unity base libraries for " + version + " unavailable and no interop yet", null, false);
+                    }
                 }
             }
+            Abertura.etapa(Abertura.MODS);
             setPhaseStatus(getString(R.string.bootstrap_status_installing_mods));
             java.util.Set<String> oficiais = ModsManager.install(appContext, bepInExDir);
+            Abertura.etapa(Abertura.SEGURANCA);
             if (!dev.allofus.fusioncore.tools.Integridade.conferir(appContext, bepInExDir, oficiais, targetPackage)) {
-                throw new IllegalStateException("Arquivos nao oficiais na pasta de mods que nao deu para remover");
+                throw new Falha(FALHA_ESTRANHOS, "Arquivos nao oficiais na pasta de mods que nao deu para remover", null, true);
             }
+            Abertura.etapa(Abertura.CONTA);
             Otimizacoes.prepararJogo(appContext, getWindowManager().getDefaultDisplay(), bepInExDir);
             Conta.prepararJogo(appContext);
             dev.allofus.fusioncore.tools.ChaveBr.prepararJogo(appContext);
-            Utilities.extractZipFromAssetsIfChanged(appContext, "dotnet-arm64.zip", dotnetDir, null);
         } //we do something else
         else{
             dotnetDir = new File(getRuntimeDir(appContext), "mono");
@@ -532,6 +799,7 @@ public class BootstrapActivity extends AppCompatActivity {
             ensureManagedDllsForMono(PersistentData);
         }
 
+        Abertura.etapa(Abertura.MAPA);
         Map<String, String> il2cppMap = useIl2Cpp2Mono
                 ? GetIL2CPPMap(DeobfuscationDir)
                 : resolveIl2CppApiMap(new File(gameLibDir), codeCacheScoped, useOriginalLibUnity, DeobfuscationDir);
@@ -555,6 +823,16 @@ public class BootstrapActivity extends AppCompatActivity {
         );
     }
 
+    /** Espera a linha das peças terminar (nunca deixa ela escrevendo sozinha depois de uma falha). */
+    private static void esperar(@Nullable Thread linha) {
+        if (linha == null) return;
+        try {
+            linha.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private void copyUriToFile(Uri sourceUri, File target) throws IOException {
         File parent = target.getParentFile();
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
@@ -567,22 +845,6 @@ public class BootstrapActivity extends AppCompatActivity {
                 throw new IOException("Unable to open input stream for URI: " + sourceUri);
             }
             byte[] buffer = new byte[8192];
-            int count;
-            while ((count = in.read(buffer)) != -1) {
-                out.write(buffer, 0, count);
-            }
-        }
-    }
-
-    private static void copyFile(File source, File target) throws IOException {
-        File parent = target.getParentFile();
-        if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw new IOException("Failed to create parent directory: " + parent.getAbsolutePath());
-        }
-
-        byte[] buffer = new byte[8192];
-        try (FileInputStream in = new FileInputStream(source);
-             FileOutputStream out = new FileOutputStream(target, false)) {
             int count;
             while ((count = in.read(buffer)) != -1) {
                 out.write(buffer, 0, count);
