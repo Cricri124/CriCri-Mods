@@ -246,6 +246,34 @@ public class Utilities {
     // without them. The config is kept between launches, so the value is written every time; a test build
     // that allows downloads puts the default back.
     public static void setUnityBaseLibrariesSource(File bepInExDir, String source) {
+        setBepInExOption(bepInExDir, "UnityBaseLibrariesSource", source);
+    }
+
+    /** The file that keeps the dummy assemblies on a phone (see {@link #setFirstLaunchOptions}). */
+    public static final String MANTER_DUMMY = "manter-dummy";
+
+    /**
+     * CriCri Mods (12/11, "a primeira vez demora"): two options of the BepInEx.cfg inside BepInEx-arm64.zip come ON, while plain
+     * BepInEx ships them OFF, and no CriCri mod needs them. Measured on CriCri's Redmi (fresh install of 0.3.1), of the ~2 min 40 s
+     * the game spends preparing the mods the first time: the method cross-reference scan took 8.9 s and writing the 94 dummy
+     * assemblies (27 MB) about 14 s. Measured again with both OFF (same phone, same game): from Cpp2IL to the mods loaded
+     * 161.5 s -> 133.2 s, the 4 mods load, no new error. The PC copy of the game already runs with ScanMethodRefs=false, and the tool that rebuilds the
+     * phone's interop on the PC (cricriqol/android/gerar-interop) uses the same options.
+     * The dummy assemblies are what that tool needs after a game update: a phone with config/manter-dummy keeps writing them
+     * ("adb shell touch .../BepInEx/config/manter-dummy").
+     * Only a new generation (first launch, game update) uses the options; an interop already made stays as it is.
+     */
+    public static void setFirstLaunchOptions(File bepInExDir) {
+        setBepInExOption(bepInExDir, "ScanMethodRefs", "false");
+        boolean manter = new File(bepInExDir, "config/" + MANTER_DUMMY).isFile();
+        setBepInExOption(bepInExDir, "DumpDummyAssemblies", manter ? "true" : "false");
+    }
+
+    /**
+     * Writes one existing "Key = value" line of BepInEx.cfg (only when it differs). The config/ folder is kept between launches
+     * (extractZipFromAssetsIfChanged leaves it), so the app writes its options on every launch.
+     */
+    public static void setBepInExOption(File bepInExDir, String key, String value) {
         File config = new File(bepInExDir, "config/BepInEx.cfg");
         if (!config.isFile()) {
             Log.w(TAG, "BepInEx.cfg not found at " + config.getAbsolutePath());
@@ -262,13 +290,13 @@ public class Utilities {
                 }
                 text = bytes.toString("UTF-8");
             }
-            String patched = text.replaceAll("(?m)^UnityBaseLibrariesSource\\s*=.*$",
-                    java.util.regex.Matcher.quoteReplacement("UnityBaseLibrariesSource = " + source));
+            String patched = text.replaceAll("(?m)^" + java.util.regex.Pattern.quote(key) + "\\s*=.*$",
+                    java.util.regex.Matcher.quoteReplacement(key + " = " + value));
             if (!patched.equals(text)) {
                 try (OutputStream out = new FileOutputStream(config, false)) {
                     out.write(patched.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 }
-                Log.i(TAG, "UnityBaseLibrariesSource = '" + source + "' in " + config.getAbsolutePath());
+                Log.i(TAG, key + " = '" + value + "' in " + config.getAbsolutePath());
             }
         } catch (IOException e) {
             Log.e(TAG, "Failed to patch BepInEx.cfg", e);

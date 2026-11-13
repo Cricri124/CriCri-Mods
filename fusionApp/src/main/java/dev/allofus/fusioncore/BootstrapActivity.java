@@ -765,6 +765,8 @@ public class BootstrapActivity extends AppCompatActivity {
             if (!pecasOk[0] || !pecasOk[1]) {
                 throw new Falha(FALHA_PECAS, "Failed to unpack " + (pecasOk[0] ? "dotnet-arm64.zip" : "BepInEx-arm64.zip"), null, true);
             }
+            // (12/11) a primeira vez mais curta: duas opções do BepInEx que nenhum mod usa (ver Utilities.setFirstLaunchOptions)
+            Utilities.setFirstLaunchOptions(bepInExDir);
             if (!BuildConfig.ALLOW_RUNTIME_DOWNLOADS) {
                 Utilities.setUnityBaseLibrariesSource(bepInExDir, "");
             } else {

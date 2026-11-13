@@ -50,8 +50,8 @@ android {
         targetSdk = 36
         // CriCri Mods: the Play Store package id is permanent once published.
         applicationId = "br.com.cricribr.mods"
-        versionCode = 5
-        versionName = "0.3.1"
+        versionCode = 6
+        versionName = "0.3.2"
         // Google Play forbids downloading executable code at run time (Device and Network Abuse policy), so a Play
         // build never fetches the unstripped libunity and the Unity base libraries. The CriCri chose (08/11/2026) the
         // site only, no Play Store: gerar-apk-final.ps1 builds with -PcricriPermitirDownloads=true (the CriCri
